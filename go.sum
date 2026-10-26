@@ -1,0 +1,11 @@
+github.com/logoscore/logos-golang-module-core v0.1.2 h1:1tELlizBUsF/IId0QCK2oEHFOFbu4YJYwiZcxd/Zf6M=
+github.com/logoscore/logos-golang-module-core v0.1.2/go.mod h1:rGtA13Y5YXVG+JfbADvuIsgi2NSTPpiOB+edBAo/Q1M=
+github.com/logoscore/logos-golang-protocol v0.5.0 h1:gBOHTym/pDi8XgncUivdvuinEoTKBfYBDDNjr8UzSzU=
+github.com/logoscore/logos-golang-protocol v0.5.0/go.mod h1:64YhaXbShwLB0nrzXZ6450QWksfcWR/LeS4WmQRJJ3k=
+github.com/oklog/ulid/v2 v2.1.1 h1:suPZ4ARWLOJLegGFiZZ1dFAkqzhMjL3J1TzI+5wHz8s=
+github.com/oklog/ulid/v2 v2.1.1/go.mod h1:rcEKHmBBKfef9DhnvX7y1HZBYxjXb0cP5ExxNsTT1QQ=
+github.com/pborman/getopt v0.0.0-20170112200414-7148bc3a4c30/go.mod h1:85jBQOZwpVEaDAr341tbn15RS4fCAsIst0qp7i8ex1o=
+github.com/rabbitmq/amqp091-go v1.10.0 h1:STpn5XsHlHGcecLmMFCtg7mqq0RnD+zFr4uzukfVhBw=
+github.com/rabbitmq/amqp091-go v1.10.0/go.mod h1:Hy4jKW5kQART1u+JkDTF9YYOQUHXqMuhrgxOEeS7G4o=
+go.uber.org/goleak v1.3.0 h1:2K3zAYmnTNqV73imy9J1T3WC+gmCePx2hEGkimedGto=
+go.uber.org/goleak v1.3.0/go.mod h1:CoHD4mav9JJNrW/WLlf7HGZPjdw8EucARQHekz1X6bE=

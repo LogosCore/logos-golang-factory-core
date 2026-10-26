@@ -43,6 +43,14 @@ func TestRunRefusesInvalidConfig(t *testing.T) {
 		{`must not take "factory.build"`, func(c *Config) {
 			c.Handlers = map[string]mgmt.HandlerFunc{protocol.TypeFactoryBuild: noop}
 		}},
+		{`duplicate action "drain"`, func(c *Config) { // the builds section's
+			own, err := mgmt.New(protocol.ManagementManifest{SchemaVersion: protocol.ManagementSchemaV1,
+				Actions: []protocol.ActionSpec{{Name: ActionDrain, Risk: protocol.RiskHigh}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			c.Management = own
+		}},
 		{"AMQPURL is required", func(c *Config) { c.AMQPURL = "" }}, // module.Run's own check
 	} {
 		cfg := valid()

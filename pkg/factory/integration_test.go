@@ -17,8 +17,9 @@ import (
 )
 
 // TestIntegrationBuildOverAMQP runs a factory against a scripted core on a
-// real RabbitMQ: registration with the build schema, factory.build on the
-// rpc_queue, progress and the result on logos.core.rpc, and the deregister.
+// real RabbitMQ: registration with the build schema and the builds section of
+// its management, factory.build on the rpc_queue, progress and the result on
+// logos.core.rpc, management requests, and the deregister.
 //
 // Opt-in: INTEGRATION_AMQP_URL names a broker and a vhost no real core
 // consumes, since the scripted core takes logos.core.rpc. With the dev stack:
@@ -55,14 +56,19 @@ func TestIntegrationBuildOverAMQP(t *testing.T) {
 	}()
 
 	var reg struct {
-		ModuleType string               `json:"module_type"`
-		RPCQueue   string               `json:"rpc_queue"`
-		Build      protocol.BuildSchema `json:"build"`
+		ModuleType string                       `json:"module_type"`
+		RPCQueue   string                       `json:"rpc_queue"`
+		Build      protocol.BuildSchema         `json:"build"`
+		Management *protocol.ManagementManifest `json:"management"`
 	}
 	core.await(t, "the register", core.registers, &reg)
 	if reg.ModuleType != ModuleType || reg.RPCQueue != RPCQueue(instance) || protocol.ValidateBuildSchema(reg.Build) != nil ||
 		reg.Build.Targets[0].ID != "dummy" {
 		t.Fatalf("register %+v", reg)
+	}
+	// A factory without management of its own still has the builds section.
+	if m := reg.Management; m == nil || len(m.Properties) != 1 || m.Properties[0].Key != PropertyMaxConcurrentBuilds || len(m.Actions) != 2 {
+		t.Fatalf("register management %+v", reg.Management)
 	}
 
 	req := testRequest(st)
@@ -83,9 +89,23 @@ func TestIntegrationBuildOverAMQP(t *testing.T) {
 		t.Fatalf("progress %+v", progress)
 	}
 
-	// The factory has no management: management requests are refused.
-	if rep := core.call(t, reg.RPCQueue, protocol.TypeMgmtStateGet, struct{}{}); rep.Error == nil || rep.Error.Code != protocol.CodeValidationFailed {
-		t.Fatalf("mgmt.state.get on an unmanaged factory: %+v", rep)
+	// Management shares the rpc_queue with the builds.
+	var state protocol.StateGetReply
+	if rep := core.call(t, reg.RPCQueue, protocol.TypeMgmtStateGet, struct{}{}); rep.Status != protocol.StatusOK ||
+		json.Unmarshal(rep.Payload, &state) != nil {
+		t.Fatalf("mgmt.state.get: %+v", rep)
+	}
+	if state.Values[PropertyMaxConcurrentBuilds] != float64(1) || state.Status["builds_succeeded_total"] != float64(1) ||
+		state.Status["draining"] != false {
+		t.Fatalf("state %+v", state)
+	}
+	if rep := core.call(t, reg.RPCQueue, protocol.TypeMgmtActionInvoke, protocol.ActionInvokeRequest{
+		InvocationID: protocol.NewULID(), Action: ActionDrain,
+	}); rep.Status != protocol.StatusOK {
+		t.Fatalf("drain: %+v", rep.Error)
+	}
+	if rep := core.call(t, reg.RPCQueue, protocol.TypeFactoryBuild, testRequest(st)); rep.Error == nil || rep.Error.Code != protocol.CodeBusy {
+		t.Fatalf("factory.build while draining: %+v", rep)
 	}
 
 	stop()

@@ -8,6 +8,10 @@
 // request's files and the artifact upload. When Build returns, Run sends
 // factory.build.result to core until core acknowledges it or the build's
 // deadline passes. See the docs repo: contracts/minion-build.md.
+//
+// Every factory is managed for its builds: Run adds a builds section to the
+// factory's management (manage.go), with the build limit, drain and resume,
+// and build counters, next to whatever the factory declares itself.
 package factory
 
 import (
@@ -81,6 +85,11 @@ type Config struct {
 	// Config is the module session. Identity.ModuleType defaults to
 	// ModuleType; any other is refused. Handlers may not take the build
 	// operations, which Run serves itself. Core defaults to a new client.
+	//
+	// Management is the factory's own: Run adds the builds section to it,
+	// so its manifest cannot use the section's keys (manage.go), and one
+	// server serves one Run. Without it, Run makes the management of just
+	// the builds section, which Logs can be served with.
 	module.Config
 	// Build is the build schema declared at registration. Required.
 	Build *protocol.BuildSchema
@@ -88,6 +97,7 @@ type Config struct {
 	Builder Builder
 	// MaxConcurrentBuilds is how many builds run at once; a factory.build
 	// beyond it is refused with busy. Defaults to DefaultMaxConcurrentBuilds.
+	// It is where the max_concurrent_builds property starts.
 	MaxConcurrentBuilds int
 	// HTTPClient downloads files and uploads artifacts. It needs no timeout
 	// of its own: every transfer is bounded by its build's deadline.
@@ -153,6 +163,10 @@ func Run(ctx context.Context, cfg Config) error {
 	mc.Handlers[protocol.TypeFactoryBuild] = m.handleBuild
 	mc.Handlers[protocol.TypeFactoryBuildCancel] = m.handleCancel
 	mc.Options = append([]lifecycle.Option{lifecycle.WithRegisterField(protocol.RegisterFieldBuild, *cfg.Build)}, cfg.Options...)
+	if err := manage(&mc, m); err != nil {
+		m.close(0)
+		return fmt.Errorf("factory: %w", err)
+	}
 
 	// The session outlives ctx: builds cancelled at shutdown still report to
 	// core, and only then does the factory deregister.

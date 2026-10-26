@@ -73,7 +73,6 @@ type manager struct {
 	builder Builder
 	core    coreCaller
 	http    *http.Client
-	max     int
 	logger  func() *slog.Logger
 	now     func() time.Time
 	// retryMin and retryMax pace result deliveries (minRetry, maxRetry).
@@ -90,6 +89,11 @@ type manager struct {
 	mu      sync.Mutex
 	builds  map[string]*build
 	running int
+	// max is the build limit and draining refuses every new build; both
+	// are set by management (manage.go), as is what stats counts.
+	max      int
+	draining bool
+	stats    buildStats
 }
 
 func newManager(schema protocol.BuildSchema, b Builder, core coreCaller, hc *http.Client, max int, logger func() *slog.Logger) *manager {
@@ -123,27 +127,40 @@ func (m *manager) handleBuild(_ context.Context, payload json.RawMessage) (any, 
 		}
 		return accepted, nil
 	}
-	if m.ctx.Err() != nil {
-		return nil, coreerrors.New(protocol.CodeBusy, "the factory is stopping")
-	}
 	if problems := protocol.ValidateBuildRequest(m.schema, req); problems != nil {
 		if _, ok := problems["schema_version"]; ok {
+			m.logger().Warn("factory: build refused: another build schema version", "build_id", req.BuildID,
+				"requested", req.SchemaVersion, "declared", m.schema.Version)
 			return nil, coreerrors.New(protocol.CodeUnsupportedVersion,
 				fmt.Sprintf("this instance declares build schema version %d", m.schema.Version))
 		}
-		return nil, coreerrors.New(protocol.CodeValidationFailed, describe(problems))
+		msg := describe(problems)
+		m.logger().Warn("factory: build refused: invalid request", "build_id", req.BuildID, "reason", msg)
+		return nil, coreerrors.New(protocol.CodeValidationFailed, msg)
 	}
 	if !req.Deadline.After(m.now()) {
 		return nil, coreerrors.New(protocol.CodeValidationFailed, "the deadline has passed")
 	}
-	if m.running >= m.max {
-		return nil, coreerrors.New(protocol.CodeBusy, fmt.Sprintf("%d of %d builds running", m.running, m.max))
+	busy := ""
+	switch {
+	case m.ctx.Err() != nil:
+		busy = "the factory is stopping"
+	case m.draining:
+		busy = "this instance is draining"
+	case m.running >= m.max:
+		busy = fmt.Sprintf("%d of %d builds running", m.running, m.max)
+	}
+	if busy != "" {
+		m.stats.refused++
+		m.logger().Debug("factory: build refused: busy", "build_id", req.BuildID, "reason", busy)
+		return nil, coreerrors.New(protocol.CodeBusy, busy)
 	}
 
 	ctx, cancel := context.WithDeadline(m.ctx, req.Deadline)
 	b := &build{id: req.BuildID, deadline: req.Deadline, state: running, cancel: cancel}
 	m.builds[b.id] = b
 	m.running++
+	m.stats.accepted++
 	m.wg.Add(1)
 	go m.run(ctx, b, req)
 	m.logger().Info("factory: build accepted", "build_id", b.id, "target", req.Target, "platform", req.Platform)
@@ -193,11 +210,16 @@ func (m *manager) run(ctx context.Context, b *build, req protocol.BuildRequest) 
 	defer m.mu.Unlock()
 	m.running--
 	if b.state == cancelled {
+		m.stats.cancelled++
 		return // core no longer waits for it
 	}
 	b.state, b.result = finished, &result
-	m.logger().Info("factory: build finished", "build_id", b.id, "status", result.Status,
-		"duration", m.now().Sub(started).Round(time.Millisecond).String())
+	m.countLocked(result)
+	attrs := []any{"build_id", b.id, "status", result.Status, "duration", m.now().Sub(started).Round(time.Millisecond).String()}
+	if e := result.Error; e != nil {
+		attrs = append(attrs, "code", e.Code, "reason", e.Message)
+	}
+	m.logger().Info("factory: build finished", attrs...)
 	m.deliverLocked(b)
 }
 
@@ -323,18 +345,20 @@ func (m *manager) deliver(b *build) {
 }
 
 // close cancels every build, waits up to grace for their results to go out,
-// then gives up on deliveries.
+// then gives up on deliveries. A grace of zero does not wait.
 func (m *manager) close(grace time.Duration) {
 	m.stop()
-	done := make(chan struct{})
-	go func() {
-		m.wg.Wait()
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-time.After(grace):
-		m.logger().Warn("factory: builds did not report within the shutdown grace", "grace", grace.String())
+	if grace > 0 {
+		done := make(chan struct{})
+		go func() {
+			m.wg.Wait()
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-time.After(grace):
+			m.logger().Warn("factory: builds did not report within the shutdown grace", "grace", grace.String())
+		}
 	}
 	m.dstop()
 }

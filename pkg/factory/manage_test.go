@@ -160,11 +160,24 @@ func TestDrainAndResume(t *testing.T) {
 		t.Errorf("status = %v", st)
 	}
 
+	// Draining again is pointless, and so is resuming twice.
+	refused(t, s, ActionDrain, "Already draining")
 	if got := invoke(t, s, ActionResume); got["draining"] != false || got["was_draining"] != true {
 		t.Errorf("resume = %v", got)
 	}
+	refused(t, s, ActionResume, "Not draining")
 	if err := submit(t, m, testRequest(st)); err != nil {
 		t.Fatalf("a build after resume: %v", err)
+	}
+}
+
+// refused invokes a management action that must be unavailable for reason.
+func refused(t *testing.T, s *mgmt.Server, action, reason string) {
+	t.Helper()
+	rep := s.Handle(context.Background(), mgmtRequest(t, protocol.TypeMgmtActionInvoke,
+		protocol.ActionInvokeRequest{InvocationID: protocol.NewULID(), Action: action}))
+	if rep.Error == nil || rep.Error.Code != protocol.CodeActionUnavailable || rep.Error.Message != reason {
+		t.Fatalf("%s: %+v, want %s %q", action, rep.Error, protocol.CodeActionUnavailable, reason)
 	}
 }
 

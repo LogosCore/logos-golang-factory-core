@@ -16,8 +16,9 @@ First version: the factory side of the Minion Build contract.
   `shutdown` before the factory deregisters.
 - Every factory is managed for its builds: Run adds a builds section to the
   factory's own management, or makes one of just that section
-  (`max_concurrent_builds`, live; `drain` and `resume`; build counters, the
-  last failure and `draining`). `module.Config.Logs` works with or without
+  (`max_concurrent_builds`, live; `drain` and `resume`, each available only
+  when it changes something; build counters, the last failure and
+  `draining`). `module.Config.Logs` works with or without
   management of the factory's own.
 - Requires `logos-golang-module-core` v0.2.0 and `logos-golang-protocol`
   v0.6.0.

@@ -27,6 +27,9 @@ const (
 	ActionResume = "resume"
 )
 
+// statusDraining is the status value drain and resume are available by.
+const statusDraining = "draining"
+
 // maxBuildsCap is the most max_concurrent_builds takes, unless
 // Config.MaxConcurrentBuilds is higher.
 const maxBuildsCap = 64
@@ -68,8 +71,16 @@ func (m *manager) section() mgmt.Section {
 				Name: ActionDrain, Label: "Drain", Risk: protocol.RiskHigh,
 				Description: "Take no new builds until resumed: core offers them to other instances of the factory, or keeps them queued. Running builds finish. Shown in the Draining status value.",
 				Confirm:     "This instance will take no new builds until it is resumed.",
+				AvailableWhen: []protocol.ActionCondition{
+					{Status: statusDraining, Op: protocol.OpEq, Value: false, Message: "Already draining"},
+				},
 			},
-			{Name: ActionResume, Label: "Resume", Risk: protocol.RiskLow, Description: "Take builds again after a drain."},
+			{
+				Name: ActionResume, Label: "Resume", Risk: protocol.RiskLow, Description: "Take builds again after a drain.",
+				AvailableWhen: []protocol.ActionCondition{
+					{Status: statusDraining, Op: protocol.OpEq, Value: true, Message: "Not draining"},
+				},
+			},
 		},
 		Status: []protocol.StatusSpec{
 			{Key: "builds_running", Type: protocol.FieldInt, Label: "Builds running"},
@@ -84,7 +95,7 @@ func (m *manager) section() mgmt.Section {
 				Description: "Its error code and message."},
 			{Key: "last_build_failure_at", Type: protocol.FieldDatetime, Label: "Last build failure at"},
 			// Draining needs an operator's eye: the instance takes no builds.
-			{Key: "draining", Type: protocol.FieldBool, Label: "Draining", Alert: true},
+			{Key: statusDraining, Type: protocol.FieldBool, Label: "Draining", Alert: true},
 		},
 		Apply:    m.apply,
 		Handlers: map[string]mgmt.ActionFunc{ActionDrain: m.drain, ActionResume: m.resume},
@@ -141,7 +152,7 @@ func (m *manager) status() map[string]any {
 		"builds_failed_total":    m.stats.failed,
 		"builds_cancelled_total": m.stats.cancelled,
 		"builds_refused_total":   m.stats.refused,
-		"draining":               m.draining,
+		statusDraining:           m.draining,
 	}
 	if m.stats.lastFailure != "" {
 		out["last_build_failure"] = m.stats.lastFailure

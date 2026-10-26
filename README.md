@@ -64,7 +64,7 @@ it declares none:
 | | |
 |---|---|
 | Property | `max_concurrent_builds` (live; starts at `MaxConcurrentBuilds`) |
-| Actions | `drain` (take no new builds; running ones finish), `resume` |
+| Actions | `drain` (take no new builds; running ones finish), `resume`; each available only when it changes something (`available_when` on `draining`) |
 | Status | `builds_running`, `builds_accepted_total`, `builds_succeeded_total`, `builds_failed_total`, `builds_cancelled_total`, `builds_refused_total`, `last_build_failure`, `last_build_failure_at`, `draining` |
 
 These keys are taken: a factory's own manifest cannot use them. The live log

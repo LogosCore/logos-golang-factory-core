@@ -1,6 +1,6 @@
 // Package factorytest runs a factory's builder in process, for the factory's
 // tests. A Store stands in for the object store behind a build's presigned
-// URLs; Build runs one build through the same checks, Job and result as
+// URLs; Run runs one build through the same checks, plan, Job and result as
 // factory.Run, and returns what core would receive and the artifact uploaded.
 package factorytest
 
@@ -85,12 +85,19 @@ func (s *Store) Artifact(buildID string) ([]byte, bool) {
 // MaxArtifactSize is the max_size Build gives a request that has none.
 const MaxArtifactSize = 64 << 20
 
-// Build runs builder on req and returns the result core would receive and
-// the artifact uploaded (nil when the build failed). It fills in what core
-// adds to a request when req leaves it out: a build id, the artifact upload
-// URL and max size, and a deadline a minute away. A request the factory
-// refuses (it does not fit the schema) fails the test.
-func Build(t testing.TB, schema protocol.BuildSchema, builder factory.Builder, store *Store, req protocol.BuildRequest) (protocol.BuildResult, []byte) {
+// Outcome is what a build Run ran left: what core would have received (the
+// plan, the progress reports that reached it, the result) and the artifact
+// uploaded (nil when the build failed).
+type Outcome struct {
+	factory.Once
+	Artifact []byte
+}
+
+// Run runs builder on req. It fills in what core adds to a request when req
+// leaves it out: a build id, the artifact upload URL and max size, and a
+// deadline a minute away. A request the factory refuses (it does not fit the
+// schema) fails the test.
+func Run(t testing.TB, schema protocol.BuildSchema, builder factory.Builder, store *Store, req protocol.BuildRequest) Outcome {
 	t.Helper()
 	if req.BuildID == "" {
 		req.BuildID = protocol.NewULID()
@@ -106,13 +113,21 @@ func Build(t testing.TB, schema protocol.BuildSchema, builder factory.Builder, s
 	}
 	ctx, cancel := context.WithDeadline(context.Background(), req.Deadline)
 	defer cancel()
-	res, err := factory.BuildOnce(ctx, schema, builder, req, store.srv.Client())
+	once, err := factory.BuildOnce(ctx, schema, builder, req, store.srv.Client())
 	if err != nil {
 		t.Fatalf("factory refused the build: %v", err)
 	}
-	artifact, _ := store.Artifact(req.BuildID)
-	if res.Status != protocol.BuildSucceeded {
-		artifact = nil
+	out := Outcome{Once: once}
+	if once.Result.Status == protocol.BuildSucceeded {
+		out.Artifact, _ = store.Artifact(req.BuildID)
 	}
-	return res, artifact
+	return out
+}
+
+// Build is Run for a test that only needs the result core would receive and
+// the artifact uploaded (nil when the build failed).
+func Build(t testing.TB, schema protocol.BuildSchema, builder factory.Builder, store *Store, req protocol.BuildRequest) (protocol.BuildResult, []byte) {
+	t.Helper()
+	out := Run(t, schema, builder, store, req)
+	return out.Result, out.Artifact
 }

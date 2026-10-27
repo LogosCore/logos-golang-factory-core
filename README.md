@@ -10,35 +10,50 @@ The contract is the Minion Build page of the docs repo
 
 ## Usage
 
-A factory declares its build schema and implements `Builder`:
+A factory declares its build schema and implements `Builder`, and `Planner`
+to name the steps of each build:
 
 ```go
+type builder struct{}
+
+// Steps is the plan for a build of req: core shows it as the build's pipeline.
+func (builder) Steps(req protocol.BuildRequest) []protocol.BuildStep {
+	return []protocol.BuildStep{{ID: "render", Label: "Render"}, {ID: "upload", Label: "Upload"}}
+}
+
+func (builder) Build(ctx context.Context, job *factory.Job) (factory.Result, error) {
+	job.Step("render", "writing the minion")
+	minion := render(job.Request) // values, connections, files
+	job.Step("upload", "")
+	if err := job.UploadArtifact(ctx, "minion.json", "application/json", minion); err != nil {
+		return factory.Result{}, err
+	}
+	return factory.Result{Capabilities: []string{"hello"}}, nil
+}
+
 schema := protocol.BuildSchema{ /* targets, fields, channels */ }
 err := factory.Run(ctx, factory.Config{
 	Config: module.Config{
 		AMQPURL:  amqpURL,
 		Identity: lifecycle.Identity{ModuleName: "bob", Instance: "bob-1", Version: version},
 	},
-	Build: &schema,
-	Builder: factory.BuilderFunc(func(ctx context.Context, job *factory.Job) (factory.Result, error) {
-		job.Progress("render", "writing the minion", 50)
-		minion := render(job.Request) // values, connections, files
-		if err := job.UploadArtifact(ctx, "minion.json", "application/json", minion); err != nil {
-			return factory.Result{}, err
-		}
-		return factory.Result{Capabilities: []string{"hello"}}, nil
-	}),
+	Build:   &schema,
+	Builder: builder{},
 })
 ```
+
+A builder that does not plan (a `BuilderFunc`, say) has one step,
+`factory.DefaultStep` (`build`).
 
 ## What Run does for a build
 
 - Checks each `factory.build` against the schema (`protocol.ValidateBuildRequest`)
-  and replies at once: accepted, `validation_failed`, `unsupported_version`
-  (another schema version), or `busy` (the build limit already running, the
-  instance drained, or the factory stopping).
-- Answers a repeated build id without building twice, and sends a finished
-  build's result again.
+  and replies at once: accepted with the build's plan (`Planner.Steps`; an
+  invalid plan is logged and `DefaultSteps` sent instead), `validation_failed`,
+  `unsupported_version` (another schema version), or `busy` (the build limit
+  already running, the instance drained, or the factory stopping).
+- Answers a repeated build id with the same plan, without building twice, and
+  sends a finished build's result again.
 - Runs `Builder.Build` with a context that ends at the build's deadline, when
   core cancels it (`factory.build.cancel`, or `not_found` on progress), or when
   the factory stops.
@@ -49,10 +64,12 @@ err := factory.Run(ctx, factory.Config{
 - At shutdown it cancels running builds, gives them `ShutdownGrace` to report,
   then deregisters.
 
-The `Job` a builder gets carries the request and target, `Progress` (best
-effort, never blocks), a build log (`Log`, `Logf`; its last 64 KiB go with the
-result), `File`, `ReadFile` and `Download` (checked by size and SHA-256), and
-`UploadArtifact` (computes the size and SHA-256, enforces `max_size`).
+The `Job` a builder gets carries the request and target, the plan (`Steps`)
+and `Step` to report the step it is on (best effort, never blocks; a step
+outside the plan is dropped and logged once), a build log (`Log`, `Logf`; its
+last 64 KiB go with the result), `File`, `ReadFile` and `Download` (checked by
+size and SHA-256), and `UploadArtifact` (computes the size and SHA-256,
+enforces `max_size`).
 
 ## Management
 

@@ -14,7 +14,8 @@ import (
 )
 
 func testJob(st *store) *Job {
-	return newJob(testRequest(st), testSchema().Targets[0], http.DefaultClient)
+	steps := []protocol.BuildStep{{ID: "compile", Label: "Compile"}, {ID: "link", Label: "Link"}}
+	return newJob(testRequest(st), testSchema().Targets[0], steps, http.DefaultClient)
 }
 
 func TestUploadArtifactEdges(t *testing.T) {
@@ -101,18 +102,24 @@ func TestDownloads(t *testing.T) {
 	}
 }
 
-func TestProgressCoalesces(t *testing.T) {
+func TestStepCoalesces(t *testing.T) {
 	job := testJob(newStore(t))
-	job.Progress("compile", "first", 10)
-	job.Progress("link", "second", -1)
-	job.Progress("Not A Step", "dropped", 0)
-	job.Progress("link", "", 101) // out of range: dropped
+	var unknown []string
+	job.unknownStep = func(id string) { unknown = append(unknown, id) }
+	job.Step("compile", "first")
+	job.Step("link", "second")
+	job.Step("Not A Step", "dropped")
+	job.Step("sign", "not planned: dropped")
+	job.Step("sign", "dropped, told once")
 	p := <-job.progress
-	if p.Step != "link" || p.Percent != nil {
-		t.Fatalf("pending progress %+v, want the latest valid one", p)
+	if p.Step != "link" || p.Message != "second" {
+		t.Fatalf("pending progress %+v, want the latest planned one", p)
+	}
+	if strings.Join(unknown, ",") != "Not A Step,sign" {
+		t.Fatalf("unknown steps told: %v", unknown)
 	}
 	job.close()
-	job.Progress("late", "", 0) // after the build: dropped, no panic
+	job.Step("link", "late") // after the build: dropped, no panic
 	if _, open := <-job.progress; open {
 		t.Fatal("progress after close")
 	}

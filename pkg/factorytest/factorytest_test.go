@@ -56,3 +56,32 @@ func TestBuildFailure(t *testing.T) {
 		t.Fatalf("result %+v", res)
 	}
 }
+
+// stepper plans two steps and reports both.
+type stepper struct{ factory.BuilderFunc }
+
+func (stepper) Steps(protocol.BuildRequest) []protocol.BuildStep {
+	return []protocol.BuildStep{{ID: "read", Label: "Read the input"}, {ID: "write", Label: "Write the copy"}}
+}
+
+func TestRunReportsThePlan(t *testing.T) {
+	st := NewStore(t)
+	input := st.File("in-1", "input.bin", "", []byte("payload"))
+	b := stepper{factory.BuilderFunc(func(ctx context.Context, job *factory.Job) (factory.Result, error) {
+		job.Step("read", "")
+		job.Step("write", "copying 7 bytes")
+		return copier(ctx, job)
+	})}
+	out := Run(t, schema, b, st, request(input))
+	if out.Result.Status != protocol.BuildSucceeded || string(out.Artifact) != "payload" {
+		t.Fatalf("result %+v", out.Result)
+	}
+	if len(out.Steps) != 2 || out.Steps[1].ID != "write" {
+		t.Fatalf("plan %+v", out.Steps)
+	}
+	// Progress is best effort: the last report is there, earlier ones may
+	// have been replaced.
+	if n := len(out.Progress); n == 0 || out.Progress[n-1].Step != "write" || out.Progress[n-1].Message != "copying 7 bytes" {
+		t.Fatalf("progress %+v", out.Progress)
+	}
+}

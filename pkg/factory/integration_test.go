@@ -49,7 +49,7 @@ func TestIntegrationBuildOverAMQP(t *testing.T) {
 			},
 			Build: &schema,
 			Builder: BuilderFunc(func(ctx context.Context, job *Job) (Result, error) {
-				job.Progress("render", "writing the minion", 50)
+				job.Step("build", "writing the minion")
 				return uploadAndReturn(Result{Capabilities: []string{"hello"}})(ctx, job)
 			}),
 		})
@@ -74,7 +74,7 @@ func TestIntegrationBuildOverAMQP(t *testing.T) {
 	req := testRequest(st)
 	var accepted protocol.BuildReply
 	if rep := core.call(t, reg.RPCQueue, protocol.TypeFactoryBuild, req); rep.Status != protocol.StatusOK ||
-		json.Unmarshal(rep.Payload, &accepted) != nil || !accepted.Accepted {
+		json.Unmarshal(rep.Payload, &accepted) != nil || accepted.Validate() != nil || accepted.Steps[0] != DefaultStep {
 		t.Fatalf("factory.build reply %+v (error %+v)", rep, rep.Error)
 	}
 	var result protocol.BuildResult
@@ -85,7 +85,7 @@ func TestIntegrationBuildOverAMQP(t *testing.T) {
 	}
 	var progress protocol.BuildProgress
 	core.await(t, "the progress", core.progress, &progress)
-	if progress.BuildID != req.BuildID || progress.Step != "render" {
+	if progress.BuildID != req.BuildID || progress.Step != "build" || progress.Message != "writing the minion" {
 		t.Fatalf("progress %+v", progress)
 	}
 

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"unicode/utf8"
@@ -31,40 +32,56 @@ type Job struct {
 	// Target is the declared target being built.
 	Target protocol.BuildTarget
 
+	steps    []protocol.BuildStep
 	http     *http.Client
 	logs     *tailBuffer
 	progress chan protocol.BuildProgress
+	// unknownStep is told once of each step id reported outside the plan.
+	unknownStep func(id string)
 
 	mu       sync.Mutex
 	closed   bool
+	unknown  map[string]bool
 	artifact *protocol.BuildArtifact
 }
 
-func newJob(req protocol.BuildRequest, target protocol.BuildTarget, hc *http.Client) *Job {
+func newJob(req protocol.BuildRequest, target protocol.BuildTarget, steps []protocol.BuildStep, hc *http.Client) *Job {
 	return &Job{
-		Request:  req,
-		Target:   target,
-		http:     hc,
-		logs:     &tailBuffer{max: protocol.MaxBuildLogBytes},
-		progress: make(chan protocol.BuildProgress, 1),
+		Request:     req,
+		Target:      target,
+		steps:       steps,
+		http:        hc,
+		logs:        &tailBuffer{max: protocol.MaxBuildLogBytes},
+		progress:    make(chan protocol.BuildProgress, 1),
+		unknownStep: func(string) {},
 	}
 }
 
-// Progress reports a step to core. It never blocks the build: progress is
-// best effort, and a newer step replaces one not sent yet. step is a short
-// name such as "compile" (^[a-z0-9][a-z0-9_.-]{0,62}$), message is shown to
-// the operator, and percent is 0 to 100, or negative when unknown.
-func (j *Job) Progress(step, message string, percent int) {
-	p := protocol.BuildProgress{BuildID: j.Request.BuildID, Step: step, Message: clip(message)}
-	if percent >= 0 {
-		p.Percent = &percent
-	}
-	if p.Validate() != nil {
-		return // a malformed step: core would refuse it
-	}
+// Steps is the build's plan, as core got it with the acceptance.
+func (j *Job) Steps() []protocol.BuildStep { return slices.Clone(j.steps) }
+
+// Step reports to core that the build is on step id of its plan, with a
+// message for the operator ("compiling 3 of 10", or "" for none); report a
+// step again to change its message. Core takes the steps before it as done.
+// It never blocks the build: progress is best effort, and a newer report
+// replaces one not sent yet. A step that is not in the plan is not reported
+// (and logged once).
+func (j *Job) Step(id, message string) {
+	p := protocol.BuildProgress{BuildID: j.Request.BuildID, Step: id, Message: clip(message)}
+	planned := slices.ContainsFunc(j.steps, func(s protocol.BuildStep) bool { return s.ID == id })
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	if j.closed {
+		return
+	}
+	if !planned || p.Validate() != nil {
+		if !j.unknown[id] {
+			if j.unknown == nil {
+				j.unknown = map[string]bool{}
+			}
+			j.unknown[id] = true
+			j.unknownStep(id)
+		}
 		return
 	}
 	select {

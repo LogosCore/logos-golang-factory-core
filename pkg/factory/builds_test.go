@@ -1,6 +1,7 @@
 package factory
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -10,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -180,7 +182,7 @@ func submit(t *testing.T, m *manager, req protocol.BuildRequest) error {
 	if err != nil {
 		return err
 	}
-	if r := rep.(protocol.BuildReply); !r.Accepted || r.BuildID != req.BuildID {
+	if r := rep.(protocol.BuildReply); r.Validate() != nil || r.BuildID != req.BuildID {
 		t.Fatalf("reply %+v", r)
 	}
 	return nil
@@ -261,7 +263,7 @@ func TestBuildSucceeds(t *testing.T) {
 		if icon, err = job.ReadFile(ctx, f); err != nil {
 			return Result{}, err
 		}
-		job.Progress("render", "writing the minion", 50)
+		job.Step("build", "writing the minion")
 		job.Logf("greeting %s", job.Request.Values["greeting"])
 		if err := job.UploadArtifact(ctx, "minion.json", "application/json", strings.NewReader(`{"minion":true}`)); err != nil {
 			return Result{}, err
@@ -290,8 +292,122 @@ func TestBuildSucceeds(t *testing.T) {
 	}
 	waitFor(t, "the progress", func() bool { _, p, _ := core.snapshot(); return len(p) == 1 })
 	_, progress, _ := core.snapshot()
-	if p := progress[0]; p.Step != "render" || p.Percent == nil || *p.Percent != 50 || p.BuildID != req.BuildID {
+	if p := progress[0]; p.Step != "build" || p.Message != "writing the minion" || p.BuildID != req.BuildID {
 		t.Fatalf("progress %+v", p)
+	}
+}
+
+// lockedBuffer is a log the manager's goroutines write while a test reads it.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+// planner is a Builder that plans with steps.
+type planner struct {
+	steps func(req protocol.BuildRequest) []protocol.BuildStep
+	build BuilderFunc
+}
+
+func (p planner) Steps(req protocol.BuildRequest) []protocol.BuildStep { return p.steps(req) }
+func (p planner) Build(ctx context.Context, job *Job) (Result, error)  { return p.build(ctx, job) }
+
+func TestPlan(t *testing.T) {
+	st, core := newStore(t), newFakeCore()
+	var seen []protocol.BuildStep
+	b := planner{
+		steps: func(req protocol.BuildRequest) []protocol.BuildStep {
+			steps := []protocol.BuildStep{{ID: "fetch", Label: "Fetch"}, {ID: "compile", Label: "Compile"}}
+			if req.Values["greeting"] != "hi" {
+				steps = append(steps, protocol.BuildStep{ID: "link", Label: "Link"})
+			}
+			return steps
+		},
+		build: func(ctx context.Context, job *Job) (Result, error) {
+			seen = job.Steps()
+			job.Step("fetch", "")
+			job.Step("link", "not in this plan") // dropped
+			job.Step("compile", "compiling")
+			return uploadAndReturn(Result{})(ctx, job)
+		},
+	}
+	m := newTestManager(t, b, core, 1)
+	logs := &lockedBuffer{}
+	logger := slog.New(slog.NewTextHandler(logs, nil))
+	m.logger = func() *slog.Logger { return logger }
+
+	req := testRequest(st)
+	raw, _ := json.Marshal(req)
+	rep, err := m.handleBuild(context.Background(), raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []protocol.BuildStep{{ID: "fetch", Label: "Fetch"}, {ID: "compile", Label: "Compile"}}
+	if r := rep.(protocol.BuildReply); !slices.Equal(r.Steps, want) {
+		t.Fatalf("the plan sent: %+v", r.Steps)
+	}
+	waitFor(t, "the result", func() bool { return core.resultCount() == 1 })
+	if !slices.Equal(seen, want) {
+		t.Fatalf("job.Steps() = %+v", seen)
+	}
+	waitFor(t, "the last step", func() bool {
+		_, p, _ := core.snapshot()
+		return len(p) > 0 && p[len(p)-1].Step == "compile"
+	})
+	_, progress, _ := core.snapshot()
+	for _, p := range progress {
+		if p.Step == "link" {
+			t.Fatalf("a step outside the plan was reported: %+v", p)
+		}
+	}
+	if !strings.Contains(logs.String(), "step=link") {
+		t.Errorf("the dropped step was not logged: %s", logs.String())
+	}
+
+	// The same build again: accepted with the same plan, not rebuilt.
+	rep, err = m.handleBuild(context.Background(), raw)
+	if err != nil || !slices.Equal(rep.(protocol.BuildReply).Steps, want) {
+		t.Fatalf("repeated: %v %+v", err, rep)
+	}
+}
+
+func TestPlanFallsBack(t *testing.T) {
+	for name, steps := range map[string]func(protocol.BuildRequest) []protocol.BuildStep{
+		"empty": func(protocol.BuildRequest) []protocol.BuildStep { return nil },
+		"invalid": func(protocol.BuildRequest) []protocol.BuildStep {
+			return []protocol.BuildStep{{ID: "Fetch!", Label: "Fetch"}}
+		},
+		"panic": func(protocol.BuildRequest) []protocol.BuildStep { panic("no plan") },
+	} {
+		st, core := newStore(t), newFakeCore()
+		m := newTestManager(t, planner{steps: steps, build: uploadAndReturn(Result{})}, core, 1)
+		raw, _ := json.Marshal(testRequest(st))
+		rep, err := m.handleBuild(context.Background(), raw)
+		if err != nil || !slices.Equal(rep.(protocol.BuildReply).Steps, DefaultSteps()) {
+			t.Errorf("%s: %v %+v", name, err, rep)
+		}
+	}
+
+	// A build cancelled before it arrives is accepted, never built, with a
+	// plan core takes.
+	st, core := newStore(t), newFakeCore()
+	m := newTestManager(t, BuilderFunc(uploadAndReturn(Result{})), core, 1)
+	req := testRequest(st)
+	cancelBuild(t, m, req.BuildID)
+	if err := submit(t, m, req); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -398,7 +514,7 @@ func TestCoreGivingUpStopsTheBuild(t *testing.T) {
 		return nil
 	}
 	m := newTestManager(t, BuilderFunc(func(ctx context.Context, job *Job) (Result, error) {
-		job.Progress("compile", "", -1)
+		job.Step("build", "")
 		<-ctx.Done()
 		return Result{}, ctx.Err()
 	}), core, 1)
@@ -509,7 +625,7 @@ func TestTimedOutBuild(t *testing.T) {
 	// The result says why, in case it does go out.
 	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
 	defer cancel()
-	r := m.result(ctx, newJob(req, testSchema().Targets[0], http.DefaultClient), Result{}, ctx.Err())
+	r := m.result(ctx, newJob(req, testSchema().Targets[0], DefaultSteps(), http.DefaultClient), Result{}, ctx.Err())
 	if r.Error == nil || r.Error.Code != CodeTimeout {
 		t.Fatalf("result %+v", r.Error)
 	}

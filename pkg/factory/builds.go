@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -60,6 +61,7 @@ const (
 type build struct {
 	id         string
 	deadline   time.Time
+	steps      []protocol.BuildStep // the plan sent with the acceptance
 	state      buildState
 	cancel     context.CancelFunc
 	result     *protocol.BuildResult // set when finished
@@ -114,18 +116,24 @@ func (m *manager) handleBuild(_ context.Context, payload json.RawMessage) (any, 
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return nil, coreerrors.New(protocol.CodeValidationFailed, "invalid payload: "+err.Error())
 	}
-	accepted := protocol.BuildReply{BuildID: req.BuildID, Accepted: true}
+	accepted := func(steps []protocol.BuildStep) protocol.BuildReply {
+		if steps == nil {
+			steps = DefaultSteps() // a build cancelled before it arrived: never built
+		}
+		return protocol.BuildReply{BuildID: req.BuildID, Accepted: true, Steps: steps}
+	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.sweepLocked()
 	if b, ok := m.builds[req.BuildID]; ok {
-		// The same build: accept it again and never build twice. A finished
-		// one reports again, in case core missed the result.
+		// The same build: accept it again, with the same plan, and never
+		// build twice. A finished one reports again, in case core missed the
+		// result.
 		if b.state == finished && !b.delivering {
 			m.deliverLocked(b)
 		}
-		return accepted, nil
+		return accepted(b.steps), nil
 	}
 	if problems := protocol.ValidateBuildRequest(m.schema, req); problems != nil {
 		if _, ok := problems["schema_version"]; ok {
@@ -157,14 +165,43 @@ func (m *manager) handleBuild(_ context.Context, payload json.RawMessage) (any, 
 	}
 
 	ctx, cancel := context.WithDeadline(m.ctx, req.Deadline)
-	b := &build{id: req.BuildID, deadline: req.Deadline, state: running, cancel: cancel}
+	b := &build{id: req.BuildID, deadline: req.Deadline, steps: m.plan(req), state: running, cancel: cancel}
 	m.builds[b.id] = b
 	m.running++
 	m.stats.accepted++
 	m.wg.Add(1)
 	go m.run(ctx, b, req)
-	m.logger().Info("factory: build accepted", "build_id", b.id, "target", req.Target, "platform", req.Platform)
-	return accepted, nil
+	m.logger().Info("factory: build accepted", "build_id", b.id, "target", req.Target, "platform", req.Platform,
+		"steps", len(b.steps))
+	return accepted(b.steps), nil
+}
+
+// plan is the builder's plan for a build of req, or DefaultSteps when it
+// does not plan or its plan is invalid.
+func (m *manager) plan(req protocol.BuildRequest) []protocol.BuildStep {
+	p, ok := m.builder.(Planner)
+	if !ok {
+		return DefaultSteps()
+	}
+	steps, err := callPlanner(p, req)
+	if err == nil {
+		err = protocol.ValidateBuildSteps(steps)
+	}
+	if err != nil {
+		m.logger().Error("factory: invalid build plan; the build has one step instead", "build_id", req.BuildID, "error", err)
+		return DefaultSteps()
+	}
+	return slices.Clone(steps)
+}
+
+// callPlanner asks p for a plan, turning a panic into an error.
+func callPlanner(p Planner, req protocol.BuildRequest) (steps []protocol.BuildStep, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			steps, err = nil, fmt.Errorf("the planner panicked: %v", r)
+		}
+	}()
+	return p.Steps(req), nil
 }
 
 // handleCancel serves factory.build.cancel. It succeeds for any build id; an
@@ -195,7 +232,10 @@ func (m *manager) run(ctx context.Context, b *build, req protocol.BuildRequest) 
 	defer b.cancel()
 	started := m.now()
 	target, _ := m.schema.Target(req.Target)
-	job := newJob(req, target, m.http)
+	job := newJob(req, target, b.steps, m.http)
+	job.unknownStep = func(id string) {
+		m.logger().Warn("factory: a step that is not in the build's plan was not reported", "build_id", b.id, "step", id)
+	}
 	m.wg.Add(1)
 	go func() {
 		defer m.wg.Done()

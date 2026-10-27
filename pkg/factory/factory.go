@@ -2,9 +2,10 @@
 // session as module type "factory", with the factory's build schema declared
 // at registration and its builds served on the rpc_queue.
 //
-// A factory implements Builder. For each factory.build core sends, Run checks
-// the request against the schema, accepts it (or replies busy), and calls
-// Build with a Job: the request, progress reporting, a build log, the
+// A factory implements Builder, and Planner to name the steps of each build.
+// For each factory.build core sends, Run checks the request against the
+// schema, accepts it with the build's plan (or replies busy), and calls Build
+// with a Job: the request, the plan and the step it is on, a build log, the
 // request's files and the artifact upload. When Build returns, Run sends
 // factory.build.result to core until core acknowledges it or the build's
 // deadline passes. See the docs repo: contracts/minion-build.md.
@@ -46,11 +47,30 @@ const (
 // Builder builds minions.
 type Builder interface {
 	// Build builds one minion from job and uploads its artifact with
-	// job.UploadArtifact. It must return when ctx is done: the build was
-	// cancelled, ran out of time, or the factory is stopping. An error
-	// fails the build; Fail gives it a code of the factory's own.
+	// job.UploadArtifact, reporting each step of the plan it starts with
+	// job.Step. It must return when ctx is done: the build was cancelled, ran
+	// out of time, or the factory is stopping. An error fails the build; Fail
+	// gives it a code of the factory's own.
 	Build(ctx context.Context, job *Job) (Result, error)
 }
+
+// Planner is a Builder that names the steps of a build before it starts.
+// A builder without it has one step, DefaultSteps.
+type Planner interface {
+	// Steps is the plan for a build of req, a request that fits the schema:
+	// the steps Build goes through, in order, for these parameters (a step
+	// that will not run for them is left out). Core gets it with the
+	// acceptance and shows it as the build's pipeline. It must be quick and
+	// valid (protocol.ValidateBuildSteps); an invalid plan is logged and
+	// DefaultSteps used instead.
+	Steps(req protocol.BuildRequest) []protocol.BuildStep
+}
+
+// DefaultStep is the one step of a builder that does not plan.
+var DefaultStep = protocol.BuildStep{ID: "build", Label: "Build"}
+
+// DefaultSteps is the plan of a builder that does not plan.
+func DefaultSteps() []protocol.BuildStep { return []protocol.BuildStep{DefaultStep} }
 
 // BuilderFunc adapts a function to Builder.
 type BuilderFunc func(ctx context.Context, job *Job) (Result, error)

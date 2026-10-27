@@ -11,9 +11,10 @@ First version: the factory side of the Minion Build contract.
   progress, a build log, file downloads checked by SHA-256, and the artifact
   upload.
 - Builds are validated against the schema, limited by `MaxConcurrentBuilds`,
-  idempotent by build id, cancellable, bounded by their deadline, and their
-  results are delivered to core until acknowledged. Running builds report
-  `shutdown` before the factory deregisters.
+  idempotent by minion id (the id of the build and of its minion),
+  cancellable, bounded by their deadline, and their results are delivered to
+  core until acknowledged. Running builds report `shutdown` before the factory
+  deregisters.
 - Every factory is managed for its builds: Run adds a builds section to the
   factory's own management, or makes one of just that section
   (`max_concurrent_builds`, live; `drain` and `resume`, each available only

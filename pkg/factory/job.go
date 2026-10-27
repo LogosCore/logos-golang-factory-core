@@ -67,7 +67,7 @@ func (j *Job) Steps() []protocol.BuildStep { return slices.Clone(j.steps) }
 // replaces one not sent yet. A step that is not in the plan is not reported
 // (and logged once).
 func (j *Job) Step(id, message string) {
-	p := protocol.BuildProgress{BuildID: j.Request.BuildID, Step: id, Message: clip(message)}
+	p := protocol.BuildProgress{MinionID: j.Request.MinionID, Step: id, Message: clip(message)}
 	planned := slices.ContainsFunc(j.steps, func(s protocol.BuildStep) bool { return s.ID == id })
 	j.mu.Lock()
 	defer j.mu.Unlock()
@@ -200,7 +200,7 @@ func (j *Job) UploadArtifact(ctx context.Context, filename, mediaType string, bo
 		return Fail("artifact_too_large", fmt.Sprintf("the artifact is larger than %d bytes", limit))
 	}
 	art := protocol.BuildArtifact{Filename: filename, Size: n, SHA256: hex.EncodeToString(h.Sum(nil)), MediaType: mediaType}
-	check := protocol.BuildResult{BuildID: j.Request.BuildID, Status: protocol.BuildSucceeded, Artifact: &art}
+	check := protocol.BuildResult{MinionID: j.Request.MinionID, Status: protocol.BuildSucceeded, Artifact: &art}
 	if err := check.Validate(); err != nil {
 		return fmt.Errorf("upload artifact: %w", err)
 	}

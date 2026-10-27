@@ -26,7 +26,7 @@ func TestUploadArtifactEdges(t *testing.T) {
 	if err := job.UploadArtifact(ctx, "empty.bin", "", strings.NewReader("")); err != nil {
 		t.Fatal(err)
 	}
-	if body, _, length, ok := st.upload("/artifacts/" + job.Request.BuildID); !ok || len(body) != 0 || length != 0 || st.chunked {
+	if body, _, length, ok := st.upload("/artifacts/" + job.Request.MinionID); !ok || len(body) != 0 || length != 0 || st.chunked {
 		t.Fatalf("empty upload: ok=%v length=%d chunked=%v", ok, length, st.chunked)
 	}
 	if a := job.uploaded(); a == nil || a.Size != 0 || a.SHA256 != sha("") {
@@ -37,7 +37,7 @@ func TestUploadArtifactEdges(t *testing.T) {
 	if err := job.UploadArtifact(ctx, "../minion.json", "", strings.NewReader("x")); err == nil {
 		t.Error("a path as the file name was accepted")
 	}
-	if _, _, _, ok := st.upload("/artifacts/" + job.Request.BuildID); ok || job.uploaded() != nil {
+	if _, _, _, ok := st.upload("/artifacts/" + job.Request.MinionID); ok || job.uploaded() != nil {
 		t.Error("a refused artifact was uploaded")
 	}
 

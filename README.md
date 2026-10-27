@@ -52,8 +52,8 @@ A builder that does not plan (a `BuilderFunc`, say) has one step,
   invalid plan is logged and `DefaultSteps` sent instead), `validation_failed`,
   `unsupported_version` (another schema version), or `busy` (the build limit
   already running, the instance drained, or the factory stopping).
-- Answers a repeated build id with the same plan, without building twice, and
-  sends a finished build's result again.
+- Answers a repeated minion id (it names the build) with the same plan,
+  without building twice, and sends a finished build's result again.
 - Runs `Builder.Build` with a context that ends at the build's deadline, when
   core cancels it (`factory.build.cancel`, or `not_found` on progress), or when
   the factory stops.

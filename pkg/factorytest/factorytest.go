@@ -75,10 +75,10 @@ func (s *Store) File(id, name, mediaType string, content []byte) protocol.BuildF
 }
 
 // Artifact returns what a build uploaded.
-func (s *Store) Artifact(buildID string) ([]byte, bool) {
+func (s *Store) Artifact(minionID string) ([]byte, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	body, ok := s.uploads["/artifacts/"+buildID]
+	body, ok := s.uploads["/artifacts/"+minionID]
 	return body, ok
 }
 
@@ -94,16 +94,16 @@ type Outcome struct {
 }
 
 // Run runs builder on req. It fills in what core adds to a request when req
-// leaves it out: a build id, the artifact upload URL and max size, and a
+// leaves it out: a minion id, the artifact upload URL and max size, and a
 // deadline a minute away. A request the factory refuses (it does not fit the
 // schema) fails the test.
 func Run(t testing.TB, schema protocol.BuildSchema, builder factory.Builder, store *Store, req protocol.BuildRequest) Outcome {
 	t.Helper()
-	if req.BuildID == "" {
-		req.BuildID = protocol.NewULID()
+	if req.MinionID == "" {
+		req.MinionID = protocol.NewID()
 	}
 	if req.Artifact.UploadURL == "" {
-		req.Artifact.UploadURL = store.srv.URL + "/artifacts/" + req.BuildID
+		req.Artifact.UploadURL = store.srv.URL + "/artifacts/" + req.MinionID
 	}
 	if req.Artifact.MaxSize == 0 {
 		req.Artifact.MaxSize = MaxArtifactSize
@@ -119,7 +119,7 @@ func Run(t testing.TB, schema protocol.BuildSchema, builder factory.Builder, sto
 	}
 	out := Outcome{Once: once}
 	if once.Result.Status == protocol.BuildSucceeded {
-		out.Artifact, _ = store.Artifact(req.BuildID)
+		out.Artifact, _ = store.Artifact(req.MinionID)
 	}
 	return out
 }

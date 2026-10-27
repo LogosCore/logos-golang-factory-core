@@ -32,7 +32,7 @@ func mgmtRequest(t *testing.T, typ string, payload any) protocol.Envelope {
 	if err != nil {
 		t.Fatal(err)
 	}
-	id := protocol.NewULID()
+	id := protocol.NewID()
 	return protocol.Envelope{
 		MessageID: id, CorrelationID: id, Type: typ, Version: protocol.EnvelopeVersionV1,
 		Source: protocol.Source{Service: "core", Instance: "core-1"}, Payload: raw,
@@ -43,7 +43,7 @@ func mgmtRequest(t *testing.T, typ string, payload any) protocol.Envelope {
 func invoke(t *testing.T, s *mgmt.Server, action string) map[string]any {
 	t.Helper()
 	rep := s.Handle(context.Background(), mgmtRequest(t, protocol.TypeMgmtActionInvoke,
-		protocol.ActionInvokeRequest{InvocationID: protocol.NewULID(), Action: action, Actor: &protocol.Actor{Type: "user", ID: "u1"}}))
+		protocol.ActionInvokeRequest{InvocationID: protocol.NewID(), Action: action, Actor: &protocol.Actor{Type: "user", ID: "u1"}}))
 	if rep.Status != protocol.StatusOK {
 		t.Fatalf("%s: %+v", action, rep.Error)
 	}
@@ -175,7 +175,7 @@ func TestDrainAndResume(t *testing.T) {
 func refused(t *testing.T, s *mgmt.Server, action, reason string) {
 	t.Helper()
 	rep := s.Handle(context.Background(), mgmtRequest(t, protocol.TypeMgmtActionInvoke,
-		protocol.ActionInvokeRequest{InvocationID: protocol.NewULID(), Action: action}))
+		protocol.ActionInvokeRequest{InvocationID: protocol.NewID(), Action: action}))
 	if rep.Error == nil || rep.Error.Code != protocol.CodeActionUnavailable || rep.Error.Message != reason {
 		t.Fatalf("%s: %+v, want %s %q", action, rep.Error, protocol.CodeActionUnavailable, reason)
 	}
@@ -255,7 +255,7 @@ func TestBuildCounters(t *testing.T) {
 	if err := submit(t, m, testRequest(st)); coreerrors.Code(err) != protocol.CodeBusy {
 		t.Fatalf("a build with no room: %v", err)
 	}
-	cancelBuild(t, m, waiting.BuildID)
+	cancelBuild(t, m, waiting.MinionID)
 	waitFor(t, "the cancelled build", func() bool { return idle(m) })
 
 	got := s.StatusSnapshot()

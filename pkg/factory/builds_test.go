@@ -96,10 +96,10 @@ func (s *store) upload(path string) ([]byte, string, int64, bool) {
 }
 
 func testRequest(st *store) protocol.BuildRequest {
-	id := protocol.NewULID()
+	id := protocol.NewID()
 	return protocol.BuildRequest{
-		BuildID: id, MinionID: "5b0c4f6e-8a1d-4c2b-9e7f-3d2a1b0c9e8f",
-		Target: "dummy", Platform: "any/any", SchemaVersion: 1,
+		MinionID: id,
+		Target:   "dummy", Platform: "any/any", SchemaVersion: 1,
 		Values: map[string]any{"greeting": "hi", "icon": "file-1"},
 		Connections: []protocol.BuildConnection{{
 			Endpoint: protocol.ChannelEndpointExport{
@@ -182,7 +182,7 @@ func submit(t *testing.T, m *manager, req protocol.BuildRequest) error {
 	if err != nil {
 		return err
 	}
-	if r := rep.(protocol.BuildReply); r.Validate() != nil || r.BuildID != req.BuildID {
+	if r := rep.(protocol.BuildReply); r.Validate() != nil || r.MinionID != req.MinionID {
 		t.Fatalf("reply %+v", r)
 	}
 	return nil
@@ -190,7 +190,7 @@ func submit(t *testing.T, m *manager, req protocol.BuildRequest) error {
 
 func cancelBuild(t *testing.T, m *manager, id string) {
 	t.Helper()
-	rep, err := m.handleCancel(context.Background(), json.RawMessage(`{"build_id":"`+id+`"}`))
+	rep, err := m.handleCancel(context.Background(), json.RawMessage(`{"minion_id":"`+id+`"}`))
 	if err != nil || !rep.(protocol.BuildCancelReply).Cancelled {
 		t.Fatalf("cancel: %v %+v", err, rep)
 	}
@@ -283,7 +283,7 @@ func TestBuildSucceeds(t *testing.T) {
 		len(r.Capabilities) != 1 || r.Capabilities[0] != "hello" || len(r.Warnings) != 1 || r.Log != "greeting hi\n" {
 		t.Fatalf("result %+v (artifact %+v)", r, r.Artifact)
 	}
-	body, ctype, length, ok := st.upload("/artifacts/" + req.BuildID)
+	body, ctype, length, ok := st.upload("/artifacts/" + req.MinionID)
 	if !ok || string(body) != `{"minion":true}` || ctype != "application/json" || length != 15 || st.chunked {
 		t.Fatalf("upload: %q %q %d chunked=%v", body, ctype, length, st.chunked)
 	}
@@ -292,7 +292,7 @@ func TestBuildSucceeds(t *testing.T) {
 	}
 	waitFor(t, "the progress", func() bool { _, p, _ := core.snapshot(); return len(p) == 1 })
 	_, progress, _ := core.snapshot()
-	if p := progress[0]; p.Step != "build" || p.Message != "writing the minion" || p.BuildID != req.BuildID {
+	if p := progress[0]; p.Step != "build" || p.Message != "writing the minion" || p.MinionID != req.MinionID {
 		t.Fatalf("progress %+v", p)
 	}
 }
@@ -405,7 +405,7 @@ func TestPlanFallsBack(t *testing.T) {
 	st, core := newStore(t), newFakeCore()
 	m := newTestManager(t, BuilderFunc(uploadAndReturn(Result{})), core, 1)
 	req := testRequest(st)
-	cancelBuild(t, m, req.BuildID)
+	cancelBuild(t, m, req.MinionID)
 	if err := submit(t, m, req); err != nil {
 		t.Fatal(err)
 	}
@@ -444,7 +444,7 @@ func TestBuildRefusals(t *testing.T) {
 	st, core := newStore(t), newFakeCore()
 	m := newTestManager(t, waitForCancel(nil), core, 1)
 
-	if _, err := m.handleBuild(context.Background(), json.RawMessage(`{"build_id":`)); coreerrors.Code(err) != protocol.CodeValidationFailed {
+	if _, err := m.handleBuild(context.Background(), json.RawMessage(`{"minion_id":`)); coreerrors.Code(err) != protocol.CodeValidationFailed {
 		t.Errorf("malformed payload: %v", err)
 	}
 	for _, c := range []struct {
@@ -488,15 +488,15 @@ func TestCancel(t *testing.T) {
 		t.Fatal(err)
 	}
 	<-started
-	cancelBuild(t, m, req.BuildID)
+	cancelBuild(t, m, req.MinionID)
 	waitFor(t, "the build to stop", func() bool { return idle(m) })
-	if n := core.resultCount(); n != 0 || stateOf(m, req.BuildID) != cancelled {
-		t.Fatalf("a cancelled build reported %d results, state %v", n, stateOf(m, req.BuildID))
+	if n := core.resultCount(); n != 0 || stateOf(m, req.MinionID) != cancelled {
+		t.Fatalf("a cancelled build reported %d results, state %v", n, stateOf(m, req.MinionID))
 	}
 
 	// A cancel that arrives first: the build is accepted, never built.
 	late := testRequest(st)
-	cancelBuild(t, m, late.BuildID)
+	cancelBuild(t, m, late.MinionID)
 	if err := submit(t, m, late); err != nil {
 		t.Fatal(err)
 	}
@@ -524,8 +524,8 @@ func TestCoreGivingUpStopsTheBuild(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitFor(t, "the build to stop", func() bool { return idle(m) })
-	if n := core.resultCount(); n != 0 || stateOf(m, req.BuildID) != cancelled {
-		t.Fatalf("results %d, state %v", n, stateOf(m, req.BuildID))
+	if n := core.resultCount(); n != 0 || stateOf(m, req.MinionID) != cancelled {
+		t.Fatalf("results %d, state %v", n, stateOf(m, req.MinionID))
 	}
 }
 

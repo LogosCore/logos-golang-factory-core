@@ -6,7 +6,6 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"strings"
 	"testing"
 	"time"
 
@@ -34,7 +33,7 @@ func TestIntegrationBuildOverAMQP(t *testing.T) {
 	}
 	core := startScriptedCore(t, url)
 	st := newStore(t)
-	instance := "bob-it-" + strings.ToLower(protocol.NewULID())
+	instance := "bob-it-" + protocol.NewID()
 	schema := testSchema()
 
 	ctx, stop := context.WithCancel(context.Background())
@@ -79,13 +78,13 @@ func TestIntegrationBuildOverAMQP(t *testing.T) {
 	}
 	var result protocol.BuildResult
 	core.await(t, "the result", core.results, &result)
-	body, _, _, _ := st.upload("/artifacts/" + req.BuildID)
+	body, _, _, _ := st.upload("/artifacts/" + req.MinionID)
 	if result.Status != protocol.BuildSucceeded || result.Artifact.SHA256 != sha(string(body)) || result.Capabilities[0] != "hello" {
 		t.Fatalf("result %+v", result)
 	}
 	var progress protocol.BuildProgress
 	core.await(t, "the progress", core.progress, &progress)
-	if progress.BuildID != req.BuildID || progress.Step != "build" || progress.Message != "writing the minion" {
+	if progress.MinionID != req.MinionID || progress.Step != "build" || progress.Message != "writing the minion" {
 		t.Fatalf("progress %+v", progress)
 	}
 
@@ -100,7 +99,7 @@ func TestIntegrationBuildOverAMQP(t *testing.T) {
 		t.Fatalf("state %+v", state)
 	}
 	if rep := core.call(t, reg.RPCQueue, protocol.TypeMgmtActionInvoke, protocol.ActionInvokeRequest{
-		InvocationID: protocol.NewULID(), Action: ActionDrain,
+		InvocationID: protocol.NewID(), Action: ActionDrain,
 	}); rep.Status != protocol.StatusOK {
 		t.Fatalf("drain: %+v", rep.Error)
 	}
@@ -175,7 +174,7 @@ func (c *scriptedCore) serve(requests <-chan amqp.Delivery) {
 		}
 		var payload struct {
 			Instance string `json:"instance"`
-			BuildID  string `json:"build_id"`
+			MinionID string `json:"minion_id"`
 		}
 		_ = json.Unmarshal(req.Payload, &payload)
 		var answer any
@@ -191,10 +190,10 @@ func (c *scriptedCore) serve(requests <-chan amqp.Delivery) {
 			answer = map[string]any{"instance": payload.Instance, "deregistered": true}
 		case protocol.TypeFactoryBuildProgress:
 			c.progress <- req.Payload
-			answer = protocol.BuildProgressReply{BuildID: payload.BuildID, Ack: true}
+			answer = protocol.BuildProgressReply{MinionID: payload.MinionID, Ack: true}
 		case protocol.TypeFactoryBuildResult:
 			c.results <- req.Payload
-			answer = protocol.BuildResultReply{BuildID: payload.BuildID, Recorded: true}
+			answer = protocol.BuildResultReply{MinionID: payload.MinionID, Recorded: true}
 		}
 		rep := protocol.NewErrorReply(req, source, protocol.CodeValidationFailed, "unknown type "+req.Type)
 		if answer != nil {
@@ -215,7 +214,7 @@ func (c *scriptedCore) call(t *testing.T, queue, typ string, payload any) protoc
 	if err != nil {
 		t.Fatal(err)
 	}
-	id := protocol.NewULID()
+	id := protocol.NewID()
 	env := protocol.Envelope{MessageID: id, CorrelationID: id, Type: typ, Version: protocol.EnvelopeVersionV1,
 		Timestamp: protocol.NowTimestamp(), Source: protocol.Source{Service: protocol.ServiceCore, Instance: "core-it"}, Payload: raw}
 	body, _ := json.Marshal(env)

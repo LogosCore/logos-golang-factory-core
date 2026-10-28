@@ -109,6 +109,12 @@ func (j *Job) Logf(format string, args ...any) {
 	_, _ = io.WriteString(j.logs, line)
 }
 
+// HasCommand reports whether the minion is built with command id: the
+// operator picked it, or the target requires it. The minion gets the
+// request's commands and no others; a builder that cannot build one in fails
+// the build.
+func (j *Job) HasCommand(id string) bool { return slices.Contains(j.Request.Commands, id) }
+
 // File returns the file a file field of the target names: the field's value
 // is the file's id, the file is in Request.Files.
 func (j *Job) File(key string) (protocol.BuildFile, bool) {

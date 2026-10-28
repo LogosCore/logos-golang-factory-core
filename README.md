@@ -23,15 +23,15 @@ func (builder) Steps(req protocol.BuildRequest) []protocol.BuildStep {
 
 func (builder) Build(ctx context.Context, job *factory.Job) (factory.Result, error) {
 	job.Step("render", "writing the minion")
-	minion := render(job.Request) // values, connections, files
+	minion := render(job.Request) // values, commands, connections, files
 	job.Step("upload", "")
 	if err := job.UploadArtifact(ctx, "minion.json", "application/json", minion); err != nil {
 		return factory.Result{}, err
 	}
-	return factory.Result{Capabilities: []string{"hello"}}, nil
+	return factory.Result{}, nil
 }
 
-schema := protocol.BuildSchema{ /* targets, fields, channels */ }
+schema := protocol.BuildSchema{ /* targets, fields, channels, commands */ }
 err := factory.Run(ctx, factory.Config{
 	Config: module.Config{
 		AMQPURL:  amqpURL,
@@ -70,6 +70,11 @@ outside the plan is dropped and logged once), a build log (`Log`, `Logf`; its
 last 64 KiB go with the result), `File`, `ReadFile` and `Download` (checked by
 size and SHA-256), and `UploadArtifact` (computes the size and SHA-256,
 enforces `max_size`).
+
+The schema's `commands` are what the minions can do. The operator picks a
+build's, the target's required ones among them, and the request carries them
+(`Request.Commands`, `HasCommand`): the builder builds those in and no others,
+or fails the build when it cannot.
 
 ## Management
 

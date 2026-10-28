@@ -49,7 +49,7 @@ func TestIntegrationBuildOverAMQP(t *testing.T) {
 			Build: &schema,
 			Builder: BuilderFunc(func(ctx context.Context, job *Job) (Result, error) {
 				job.Step("build", "writing the minion")
-				return uploadAndReturn(Result{Capabilities: []string{"hello"}})(ctx, job)
+				return uploadAndReturn(Result{})(ctx, job)
 			}),
 		})
 	}()
@@ -79,7 +79,7 @@ func TestIntegrationBuildOverAMQP(t *testing.T) {
 	var result protocol.BuildResult
 	core.await(t, "the result", core.results, &result)
 	body, _, _, _ := st.upload("/artifacts/" + req.MinionID)
-	if result.Status != protocol.BuildSucceeded || result.Artifact.SHA256 != sha(string(body)) || result.Capabilities[0] != "hello" {
+	if result.Status != protocol.BuildSucceeded || result.Artifact.SHA256 != sha(string(body)) {
 		t.Fatalf("result %+v", result)
 	}
 	var progress protocol.BuildProgress

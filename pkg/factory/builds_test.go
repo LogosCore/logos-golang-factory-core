@@ -39,6 +39,7 @@ func testSchema() protocol.BuildSchema {
 			ID: "dummy", Format: "json", Platforms: []string{"any/any"},
 			Fields: []protocol.FieldSpec{{Key: "icon", Type: protocol.FieldFile, Accept: []string{".ico"}}},
 		}},
+		Commands: []protocol.BuildCommand{{ID: "hello", Required: true}, {ID: "shell"}},
 	}
 }
 
@@ -100,7 +101,8 @@ func testRequest(st *store) protocol.BuildRequest {
 	return protocol.BuildRequest{
 		MinionID: id,
 		Target:   "dummy", Platform: "any/any", SchemaVersion: 1,
-		Values: map[string]any{"greeting": "hi", "icon": "file-1"},
+		Values:   map[string]any{"greeting": "hi", "icon": "file-1"},
+		Commands: []string{"hello"},
 		Connections: []protocol.BuildConnection{{
 			Endpoint: protocol.ChannelEndpointExport{
 				Format: protocol.ChannelEndpointExportV1, Name: "edge",
@@ -254,7 +256,9 @@ func waitForCancel(started chan<- struct{}) BuilderFunc {
 func TestBuildSucceeds(t *testing.T) {
 	st, core := newStore(t), newFakeCore()
 	var icon []byte
+	var commands [2]bool
 	m := newTestManager(t, BuilderFunc(func(ctx context.Context, job *Job) (Result, error) {
+		commands = [2]bool{job.HasCommand("hello"), job.HasCommand("shell")}
 		f, ok := job.File("icon")
 		if !ok {
 			return Result{}, errors.New("no icon")
@@ -268,7 +272,7 @@ func TestBuildSucceeds(t *testing.T) {
 		if err := job.UploadArtifact(ctx, "minion.json", "application/json", strings.NewReader(`{"minion":true}`)); err != nil {
 			return Result{}, err
 		}
-		return Result{Capabilities: []string{"hello"}, Warnings: []string{"dummy minion"}}, nil
+		return Result{Warnings: []string{"dummy minion"}}, nil
 	}), core, 1)
 
 	req := testRequest(st)
@@ -280,8 +284,11 @@ func TestBuildSucceeds(t *testing.T) {
 	r := results[0]
 	want := protocol.BuildArtifact{Filename: "minion.json", Size: 15, SHA256: sha(`{"minion":true}`), MediaType: "application/json"}
 	if r.Status != protocol.BuildSucceeded || r.Artifact == nil || *r.Artifact != want ||
-		len(r.Capabilities) != 1 || r.Capabilities[0] != "hello" || len(r.Warnings) != 1 || r.Log != "greeting hi\n" {
+		len(r.Warnings) != 1 || r.Log != "greeting hi\n" {
 		t.Fatalf("result %+v (artifact %+v)", r, r.Artifact)
+	}
+	if commands != [2]bool{true, false} {
+		t.Fatalf("HasCommand(hello, shell) = %v, want the request's hello only", commands)
 	}
 	body, ctype, length, ok := st.upload("/artifacts/" + req.MinionID)
 	if !ok || string(body) != `{"minion":true}` || ctype != "application/json" || length != 15 || st.chunked {
@@ -457,6 +464,10 @@ func TestBuildRefusals(t *testing.T) {
 			r.Connections[0].Values["method"] = "PUT"
 		}},
 		{"deadline passed", protocol.CodeValidationFailed, "deadline", func(r *protocol.BuildRequest) { r.Deadline = time.Now().Add(-time.Second) }},
+		{"unknown command", protocol.CodeValidationFailed, "commands[1]", func(r *protocol.BuildRequest) {
+			r.Commands = append(r.Commands, "keylog")
+		}},
+		{"required command left out", protocol.CodeValidationFailed, "requires hello", func(r *protocol.BuildRequest) { r.Commands = nil }},
 	} {
 		req := testRequest(st)
 		c.mutate(&req)
@@ -545,7 +556,9 @@ func TestFailedBuilds(t *testing.T) {
 		}},
 		{"no artifact", CodeNoArtifact, "", func(context.Context, *Job) (Result, error) { return Result{}, nil }},
 		{"panic", CodePanic, "boom", func(context.Context, *Job) (Result, error) { panic("boom") }},
-		{"invalid capability", CodeInvalidResult, "capability", uploadAndReturn(Result{Capabilities: []string{"Not A Name"}})},
+		{"invalid warning", CodeInvalidResult, "warning longer than", uploadAndReturn(Result{
+			Warnings: []string{strings.Repeat("x", protocol.MaxBuildMessageLength+1)},
+		})},
 		{"too large", "artifact_too_large", "larger than", func(ctx context.Context, job *Job) (Result, error) {
 			return Result{}, job.UploadArtifact(ctx, "big.bin", "", strings.NewReader(strings.Repeat("x", 1<<20+1)))
 		}},

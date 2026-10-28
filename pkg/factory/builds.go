@@ -281,7 +281,7 @@ func (m *manager) result(ctx context.Context, job *Job, res Result, err error) p
 	case err == nil && artifact == nil:
 		err = Fail(CodeNoArtifact, "the builder returned without uploading an artifact")
 	case err == nil:
-		r.Status, r.Artifact, r.Capabilities, r.Warnings = protocol.BuildSucceeded, artifact, res.Capabilities, res.Warnings
+		r.Status, r.Artifact, r.Warnings = protocol.BuildSucceeded, artifact, res.Warnings
 	}
 	if err != nil {
 		code, msg := CodeBuildFailed, err.Error()

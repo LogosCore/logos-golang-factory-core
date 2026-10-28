@@ -78,12 +78,13 @@ type BuilderFunc func(ctx context.Context, job *Job) (Result, error)
 // Build calls f.
 func (f BuilderFunc) Build(ctx context.Context, job *Job) (Result, error) { return f(ctx, job) }
 
-// Result is what a successful build reports next to its artifact.
+// Result is what a successful build reports next to its artifact. What the
+// minion can do is no part of it: the commands of the request
+// (Job.HasCommand), which the builder builds in, all of them or fails.
 type Result struct {
-	// Capabilities is what the built minion can do, by the names of the
-	// factory's command set.
-	Capabilities []string
-	Warnings     []string
+	// Warnings are shown with the build, e.g. "debug build: strings are not
+	// obfuscated".
+	Warnings []string
 }
 
 // Failure is a build error with a code of the factory's own, such as

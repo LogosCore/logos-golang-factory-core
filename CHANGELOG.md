@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.1.0 (unreleased)
+## v0.1.0
 
 First version: the factory side of the Minion Build contract.
 

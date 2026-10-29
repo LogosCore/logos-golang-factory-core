@@ -120,13 +120,13 @@ func (m *manager) handleBuild(_ context.Context, payload json.RawMessage) (any, 
 		if steps == nil {
 			steps = DefaultSteps() // a build cancelled before it arrived: never built
 		}
-		return protocol.BuildReply{MinionID: req.MinionID, Accepted: true, Steps: steps}
+		return protocol.BuildReply{BuildID: req.BuildID, Accepted: true, Steps: steps}
 	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.sweepLocked()
-	if b, ok := m.builds[req.MinionID]; ok {
+	if b, ok := m.builds[req.BuildID]; ok {
 		// The same build: accept it again, with the same plan, and never
 		// build twice. A finished one reports again, in case core missed the
 		// result.
@@ -137,13 +137,13 @@ func (m *manager) handleBuild(_ context.Context, payload json.RawMessage) (any, 
 	}
 	if problems := protocol.ValidateBuildRequest(m.schema, req); problems != nil {
 		if _, ok := problems["schema_version"]; ok {
-			m.logger().Warn("factory: build refused: another build schema version", "minion_id", req.MinionID,
+			m.logger().Warn("factory: build refused: another build schema version", "build_id", req.BuildID,
 				"requested", req.SchemaVersion, "declared", m.schema.Version)
 			return nil, coreerrors.New(protocol.CodeUnsupportedVersion,
 				fmt.Sprintf("this instance declares build schema version %d", m.schema.Version))
 		}
 		msg := describe(problems)
-		m.logger().Warn("factory: build refused: invalid request", "minion_id", req.MinionID, "reason", msg)
+		m.logger().Warn("factory: build refused: invalid request", "build_id", req.BuildID, "reason", msg)
 		return nil, coreerrors.New(protocol.CodeValidationFailed, msg)
 	}
 	if !req.Deadline.After(m.now()) {
@@ -160,18 +160,18 @@ func (m *manager) handleBuild(_ context.Context, payload json.RawMessage) (any, 
 	}
 	if busy != "" {
 		m.stats.refused++
-		m.logger().Debug("factory: build refused: busy", "minion_id", req.MinionID, "reason", busy)
+		m.logger().Debug("factory: build refused: busy", "build_id", req.BuildID, "reason", busy)
 		return nil, coreerrors.New(protocol.CodeBusy, busy)
 	}
 
 	ctx, cancel := context.WithDeadline(m.ctx, req.Deadline)
-	b := &build{id: req.MinionID, deadline: req.Deadline, steps: m.plan(req), state: running, cancel: cancel}
+	b := &build{id: req.BuildID, deadline: req.Deadline, steps: m.plan(req), state: running, cancel: cancel}
 	m.builds[b.id] = b
 	m.running++
 	m.stats.accepted++
 	m.wg.Add(1)
 	go m.run(ctx, b, req)
-	m.logger().Info("factory: build accepted", "minion_id", b.id, "target", req.Target, "platform", req.Platform,
+	m.logger().Info("factory: build accepted", "build_id", b.id, "target", req.Target, "platform", req.Platform,
 		"steps", len(b.steps))
 	return accepted(b.steps), nil
 }
@@ -188,7 +188,7 @@ func (m *manager) plan(req protocol.BuildRequest) []protocol.BuildStep {
 		err = protocol.ValidateBuildSteps(steps)
 	}
 	if err != nil {
-		m.logger().Error("factory: invalid build plan; the build has one step instead", "minion_id", req.MinionID, "error", err)
+		m.logger().Error("factory: invalid build plan; the build has one step instead", "build_id", req.BuildID, "error", err)
 		return DefaultSteps()
 	}
 	return slices.Clone(steps)
@@ -204,26 +204,26 @@ func callPlanner(p Planner, req protocol.BuildRequest) (steps []protocol.BuildSt
 	return p.Steps(req), nil
 }
 
-// handleCancel serves factory.build.cancel. It succeeds for any minion id; an
+// handleCancel serves factory.build.cancel. It succeeds for any build id; an
 // unknown one is remembered, so a factory.build arriving after its cancel is
 // accepted but never built.
 func (m *manager) handleCancel(_ context.Context, payload json.RawMessage) (any, error) {
 	var req protocol.BuildCancelRequest
-	if err := json.Unmarshal(payload, &req); err != nil || req.MinionID == "" {
-		return nil, coreerrors.New(protocol.CodeValidationFailed, "minion_id is required")
+	if err := json.Unmarshal(payload, &req); err != nil || req.BuildID == "" {
+		return nil, coreerrors.New(protocol.CodeValidationFailed, "build_id is required")
 	}
 	m.mu.Lock()
-	b, ok := m.builds[req.MinionID]
+	b, ok := m.builds[req.BuildID]
 	switch {
 	case !ok:
-		m.builds[req.MinionID] = &build{id: req.MinionID, deadline: m.now(), state: cancelled, cancel: func() {}}
+		m.builds[req.BuildID] = &build{id: req.BuildID, deadline: m.now(), state: cancelled, cancel: func() {}}
 	case b.state != cancelled:
 		b.state = cancelled
 		b.cancel()
-		m.logger().Info("factory: build cancelled by core", "minion_id", b.id)
+		m.logger().Info("factory: build cancelled by core", "build_id", b.id)
 	}
 	m.mu.Unlock()
-	return protocol.BuildCancelReply{MinionID: req.MinionID, Cancelled: true}, nil
+	return protocol.BuildCancelReply{BuildID: req.BuildID, Cancelled: true}, nil
 }
 
 // run carries out one build and reports it.
@@ -234,7 +234,7 @@ func (m *manager) run(ctx context.Context, b *build, req protocol.BuildRequest) 
 	target, _ := m.schema.Target(req.Target)
 	job := newJob(req, target, b.steps, m.http)
 	job.unknownStep = func(id string) {
-		m.logger().Warn("factory: a step that is not in the build's plan was not reported", "minion_id", b.id, "step", id)
+		m.logger().Warn("factory: a step that is not in the build's plan was not reported", "build_id", b.id, "step", id)
 	}
 	m.wg.Add(1)
 	go func() {
@@ -255,7 +255,7 @@ func (m *manager) run(ctx context.Context, b *build, req protocol.BuildRequest) 
 	}
 	b.state, b.result = finished, &result
 	m.countLocked(result)
-	attrs := []any{"minion_id", b.id, "status", result.Status, "duration", m.now().Sub(started).Round(time.Millisecond).String()}
+	attrs := []any{"build_id", b.id, "status", result.Status, "duration", m.now().Sub(started).Round(time.Millisecond).String()}
 	if e := result.Error; e != nil {
 		attrs = append(attrs, "code", e.Code, "reason", e.Message)
 	}
@@ -275,7 +275,7 @@ func (m *manager) callBuilder(ctx context.Context, job *Job) (res Result, err er
 
 // result is the factory.build.result of a build that ended with res, err.
 func (m *manager) result(ctx context.Context, job *Job, res Result, err error) protocol.BuildResult {
-	r := protocol.BuildResult{MinionID: job.Request.MinionID, Log: job.logs.String()}
+	r := protocol.BuildResult{BuildID: job.Request.BuildID, Log: job.logs.String()}
 	artifact := job.uploaded()
 	switch {
 	case err == nil && artifact == nil:
@@ -304,7 +304,7 @@ func (m *manager) result(ctx context.Context, job *Job, res Result, err error) p
 	if verr := r.Validate(); verr != nil {
 		// Never send core a result it would refuse: say what was wrong
 		// instead.
-		r = protocol.BuildResult{MinionID: r.MinionID, Status: protocol.BuildFailed, Log: r.Log,
+		r = protocol.BuildResult{BuildID: r.BuildID, Status: protocol.BuildFailed, Log: r.Log,
 			Error: &protocol.BuildError{Code: CodeInvalidResult, Message: clip(verr.Error())}}
 	}
 	return r
@@ -323,7 +323,7 @@ func (m *manager) sendProgress(b *build, ch <-chan protocol.BuildProgress) {
 			if b.state == running {
 				b.state = cancelled
 				b.cancel()
-				m.logger().Info("factory: core no longer waits for the build; stopping it", "minion_id", b.id)
+				m.logger().Info("factory: core no longer waits for the build; stopping it", "build_id", b.id)
 			}
 			m.mu.Unlock()
 		}
@@ -356,7 +356,7 @@ func (m *manager) deliver(b *build) {
 			return
 		}
 		if !m.now().Before(b.deadline) {
-			m.logger().Warn("factory: build result not delivered before the deadline", "minion_id", b.id)
+			m.logger().Warn("factory: build result not delivered before the deadline", "build_id", b.id)
 			return
 		}
 		ctx, cancel := context.WithTimeout(m.dctx, resultTimeout)
@@ -365,16 +365,16 @@ func (m *manager) deliver(b *build) {
 		var refused *coreerrors.Error
 		switch {
 		case err == nil:
-			m.logger().Info("factory: build result recorded", "minion_id", b.id, "status", result.Status)
+			m.logger().Info("factory: build result recorded", "build_id", b.id, "status", result.Status)
 			return
 		case errors.As(err, &refused) && refused.Code == protocol.CodeNotFound:
-			m.logger().Info("factory: core no longer waits for the build", "minion_id", b.id)
+			m.logger().Info("factory: core no longer waits for the build", "build_id", b.id)
 			return
 		case errors.As(err, &refused):
-			m.logger().Warn("factory: core refused the build result", "minion_id", b.id, "code", refused.Code, "reason", refused.Message)
+			m.logger().Warn("factory: core refused the build result", "build_id", b.id, "code", refused.Code, "reason", refused.Message)
 			return
 		}
-		m.logger().Warn("factory: build result not delivered; retrying", "minion_id", b.id, "err", err, "retry_in", wait.String())
+		m.logger().Warn("factory: build result not delivered; retrying", "build_id", b.id, "err", err, "retry_in", wait.String())
 		select {
 		case <-m.dctx.Done():
 			return

@@ -255,7 +255,7 @@ func TestBuildCounters(t *testing.T) {
 	if err := submit(t, m, testRequest(st)); coreerrors.Code(err) != protocol.CodeBusy {
 		t.Fatalf("a build with no room: %v", err)
 	}
-	cancelBuild(t, m, waiting.MinionID)
+	cancelBuild(t, m, waiting.BuildID)
 	waitFor(t, "the cancelled build", func() bool { return idle(m) })
 
 	got := s.StatusSnapshot()

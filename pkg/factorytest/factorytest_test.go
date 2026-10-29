@@ -28,7 +28,7 @@ var copier = factory.BuilderFunc(func(ctx context.Context, job *factory.Job) (fa
 
 func request(input protocol.BuildFile) protocol.BuildRequest {
 	return protocol.BuildRequest{
-		MinionID: "5b0c4f6e-8a1d-4c2b-9e7f-3d2a1b0c9e8f", Target: "copy", Platform: "any/any", SchemaVersion: 1,
+		BuildID: "5b0c4f6e-8a1d-4c2b-9e7f-3d2a1b0c9e8f", Target: "copy", Platform: "any/any", SchemaVersion: 1,
 		Values: map[string]any{"input": input.ID},
 		Connections: []protocol.BuildConnection{{Endpoint: protocol.ChannelEndpointExport{
 			Format: protocol.ChannelEndpointExportV1, Name: "edge",

@@ -78,13 +78,13 @@ func TestIntegrationBuildOverAMQP(t *testing.T) {
 	}
 	var result protocol.BuildResult
 	core.await(t, "the result", core.results, &result)
-	body, _, _, _ := st.upload("/artifacts/" + req.MinionID)
+	body, _, _, _ := st.upload("/artifacts/" + req.BuildID)
 	if result.Status != protocol.BuildSucceeded || result.Artifact.SHA256 != sha(string(body)) {
 		t.Fatalf("result %+v", result)
 	}
 	var progress protocol.BuildProgress
 	core.await(t, "the progress", core.progress, &progress)
-	if progress.MinionID != req.MinionID || progress.Step != "build" || progress.Message != "writing the minion" {
+	if progress.BuildID != req.BuildID || progress.Step != "build" || progress.Message != "writing the minion" {
 		t.Fatalf("progress %+v", progress)
 	}
 
@@ -174,7 +174,7 @@ func (c *scriptedCore) serve(requests <-chan amqp.Delivery) {
 		}
 		var payload struct {
 			Instance string `json:"instance"`
-			MinionID string `json:"minion_id"`
+			BuildID  string `json:"build_id"`
 		}
 		_ = json.Unmarshal(req.Payload, &payload)
 		var answer any
@@ -190,10 +190,10 @@ func (c *scriptedCore) serve(requests <-chan amqp.Delivery) {
 			answer = map[string]any{"instance": payload.Instance, "deregistered": true}
 		case protocol.TypeFactoryBuildProgress:
 			c.progress <- req.Payload
-			answer = protocol.BuildProgressReply{MinionID: payload.MinionID, Ack: true}
+			answer = protocol.BuildProgressReply{BuildID: payload.BuildID, Ack: true}
 		case protocol.TypeFactoryBuildResult:
 			c.results <- req.Payload
-			answer = protocol.BuildResultReply{MinionID: payload.MinionID, Recorded: true}
+			answer = protocol.BuildResultReply{BuildID: payload.BuildID, Recorded: true}
 		}
 		rep := protocol.NewErrorReply(req, source, protocol.CodeValidationFailed, "unknown type "+req.Type)
 		if answer != nil {

@@ -1,7 +1,7 @@
-github.com/logoscore/logos-golang-module-core v0.2.0 h1:6iOsIg9Hnfo1hjQ2D8wiZ5Bf4SSg/MbmRSNewIbMSes=
-github.com/logoscore/logos-golang-module-core v0.2.0/go.mod h1:fMWm+F42B7d+HroC7L/oHHaA63tUepWKlQdvSOWc3Wg=
-github.com/logoscore/logos-golang-protocol v0.6.0 h1:sYRmV4cRxav0+mJrrHqMz7G8cLrghpqFl01QHe7R6LM=
-github.com/logoscore/logos-golang-protocol v0.6.0/go.mod h1:bmlZm5YA5cUTS9SJzMCggNuLSJ/6FJa5TmBzitScYx0=
+github.com/logoscore/logos-golang-module-core v0.2.1 h1:7n8V6dmTKudPcKcWLwWFxaiUjm73udBkVSl50yIJg7I=
+github.com/logoscore/logos-golang-module-core v0.2.1/go.mod h1:DBQqmaAisjjOChDau5TDEkHrL4Co8aP95vAQ1Uh7lxE=
+github.com/logoscore/logos-golang-protocol v0.7.0 h1:iAT80cbBkYnN9Bti7RGfjsXtTISNw/ZDRey1bDb5aKk=
+github.com/logoscore/logos-golang-protocol v0.7.0/go.mod h1:bmlZm5YA5cUTS9SJzMCggNuLSJ/6FJa5TmBzitScYx0=
 github.com/rabbitmq/amqp091-go v1.10.0 h1:STpn5XsHlHGcecLmMFCtg7mqq0RnD+zFr4uzukfVhBw=
 github.com/rabbitmq/amqp091-go v1.10.0/go.mod h1:Hy4jKW5kQART1u+JkDTF9YYOQUHXqMuhrgxOEeS7G4o=
 go.uber.org/goleak v1.3.0 h1:2K3zAYmnTNqV73imy9J1T3WC+gmCePx2hEGkimedGto=

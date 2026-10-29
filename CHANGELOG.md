@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.2.0
+
+- **The minion id is now the build id**: build operations carry `build_id` (`BuildRequest.BuildID` and the rest), and the SDK names builds by it. Requires `logos-golang-protocol` v0.7.0 and `logos-golang-module-core` v0.2.1.
+
 ## v0.1.0
 
 First version: the factory side of the Minion Build contract.

@@ -3,8 +3,8 @@ module github.com/logoscore/logos-golang-factory-core
 go 1.25.7
 
 require (
-	github.com/logoscore/logos-golang-module-core v0.2.8
-	github.com/logoscore/logos-golang-protocol v0.13.0
+	github.com/logoscore/logos-golang-module-core v0.2.9
+	github.com/logoscore/logos-golang-protocol v0.14.0
 	github.com/rabbitmq/amqp091-go v1.10.0
 )
 

@@ -28,11 +28,11 @@ const iconBody = "fake icon bytes"
 
 func testSchema() protocol.BuildSchema {
 	return protocol.BuildSchema{
-		SchemaVersion: protocol.BuildSchemaV2, Version: 1,
+		SchemaVersion: protocol.BuildSchemaV3, Version: 1,
 		Channels: []protocol.BuildChannel{{
-			ChannelVersions: protocol.ChannelVersions{ModuleName: "http", Versions: []int{2}},
-			Fields: []protocol.FieldSpec{{Key: "method", Type: protocol.FieldEnum, Default: "POST",
-				Options: []protocol.EnumOption{{Value: "GET"}, {Value: "POST"}}}},
+			ModuleName: "http", Versions: []int{2},
+			Kinds: []protocol.BuildKind{{Kind: protocol.KindReverseCall, Fields: []protocol.FieldSpec{{Key: "method", Type: protocol.FieldEnum,
+				Default: "POST", Options: []protocol.EnumOption{{Value: "GET"}, {Value: "POST"}}}}}},
 		}},
 		Fields: []protocol.FieldSpec{{Key: "greeting", Type: protocol.FieldString, Default: "hello"}},
 		Targets: []protocol.BuildTarget{{
@@ -105,7 +105,7 @@ func testRequest(st *store) protocol.BuildRequest {
 		Commands: []string{"hello"},
 		Connections: []protocol.BuildConnection{{
 			Endpoint: protocol.ChannelEndpointExport{
-				Format: protocol.ChannelEndpointExportV1, Name: "edge",
+				Format: protocol.ChannelEndpointExportV2, Name: "edge", Kind: protocol.KindReverseCall,
 				Channel: protocol.ExportChannel{ModuleName: "http", SchemaVersion: 2},
 				Params:  map[string]any{"base_url": "https://edge.example.com"},
 			},

@@ -10,8 +10,8 @@ import (
 )
 
 var schema = protocol.BuildSchema{
-	SchemaVersion: protocol.BuildSchemaV2, Version: 1,
-	Channels: []protocol.BuildChannel{{ChannelVersions: protocol.ChannelVersions{ModuleName: "http", Versions: []int{2}}}},
+	SchemaVersion: protocol.BuildSchemaV3, Version: 1,
+	Channels: []protocol.BuildChannel{{ModuleName: "http", Versions: []int{2}, Kinds: []protocol.BuildKind{{Kind: protocol.KindReverseCall}}}},
 	Targets: []protocol.BuildTarget{{ID: "copy", Format: "bin", Platforms: []string{"any/any"},
 		Fields: []protocol.FieldSpec{{Key: "input", Type: protocol.FieldFile, Required: true}}}},
 }
@@ -31,7 +31,7 @@ func request(input protocol.BuildFile) protocol.BuildRequest {
 		BuildID: "5b0c4f6e-8a1d-4c2b-9e7f-3d2a1b0c9e8f", Target: "copy", Platform: "any/any", SchemaVersion: 1,
 		Values: map[string]any{"input": input.ID},
 		Connections: []protocol.BuildConnection{{Endpoint: protocol.ChannelEndpointExport{
-			Format: protocol.ChannelEndpointExportV1, Name: "edge",
+			Format: protocol.ChannelEndpointExportV2, Name: "edge", Kind: protocol.KindReverseCall,
 			Channel: protocol.ExportChannel{ModuleName: "http", SchemaVersion: 2},
 		}}},
 		Files: map[string]protocol.BuildFile{input.ID: input},

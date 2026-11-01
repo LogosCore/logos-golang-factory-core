@@ -144,7 +144,7 @@ func (j *Job) Download(ctx context.Context, f protocol.BuildFile, path string) e
 	if err != nil {
 		return fmt.Errorf("download %s: %w", f.Name, err)
 	}
-	defer os.Remove(tmp.Name()) // a no-op after the rename
+	defer func() { _ = os.Remove(tmp.Name()) }() // a no-op after the rename
 	err = j.fetch(ctx, f, tmp)
 	if cerr := tmp.Close(); err == nil {
 		err = cerr
@@ -165,7 +165,8 @@ func (j *Job) fetch(ctx context.Context, f protocol.BuildFile, w io.Writer) erro
 	if err != nil {
 		return fmt.Errorf("download %s: %w", f.Name, err)
 	}
-	defer resp.Body.Close()
+	// Read to the size or failed already: closing it says nothing more.
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("download %s: %s", f.Name, resp.Status)
 	}
@@ -193,8 +194,12 @@ func (j *Job) UploadArtifact(ctx context.Context, filename, mediaType string, bo
 	if err != nil {
 		return fmt.Errorf("spool artifact: %w", err)
 	}
-	defer os.Remove(spool.Name())
-	defer spool.Close()
+	// A scratch copy, read back for the upload and then thrown away: closing
+	// and removing it can fail only in ways the build no longer cares about.
+	defer func() {
+		_ = spool.Close()
+		_ = os.Remove(spool.Name())
+	}()
 
 	limit := j.Request.Artifact.MaxSize
 	h := sha256.New()
@@ -230,7 +235,8 @@ func (j *Job) UploadArtifact(ctx context.Context, filename, mediaType string, bo
 	if err != nil {
 		return fmt.Errorf("upload artifact: %w", err)
 	}
-	defer resp.Body.Close()
+	// The status says how the upload went; closing the body says nothing.
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode/100 != 2 {
 		detail, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 		return fmt.Errorf("upload artifact: %s %s", resp.Status, strings.TrimSpace(string(detail)))

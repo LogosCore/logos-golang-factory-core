@@ -10,7 +10,7 @@ import (
 )
 
 var schema = protocol.BuildSchema{
-	SchemaVersion: protocol.BuildSchemaV1, Version: 1,
+	SchemaVersion: protocol.BuildSchemaV2, Version: 1,
 	Channels: []protocol.BuildChannel{{ChannelVersions: protocol.ChannelVersions{ModuleName: "http", Versions: []int{2}}}},
 	Targets: []protocol.BuildTarget{{ID: "copy", Format: "bin", Platforms: []string{"any/any"},
 		Fields: []protocol.FieldSpec{{Key: "input", Type: protocol.FieldFile, Required: true}}}},

@@ -28,7 +28,7 @@ const iconBody = "fake icon bytes"
 
 func testSchema() protocol.BuildSchema {
 	return protocol.BuildSchema{
-		SchemaVersion: protocol.BuildSchemaV1, Version: 1,
+		SchemaVersion: protocol.BuildSchemaV2, Version: 1,
 		Channels: []protocol.BuildChannel{{
 			ChannelVersions: protocol.ChannelVersions{ModuleName: "http", Versions: []int{2}},
 			Fields: []protocol.FieldSpec{{Key: "method", Type: protocol.FieldEnum, Default: "POST",
@@ -39,7 +39,7 @@ func testSchema() protocol.BuildSchema {
 			ID: "dummy", Format: "json", Platforms: []string{"any/any"},
 			Fields: []protocol.FieldSpec{{Key: "icon", Type: protocol.FieldFile, Accept: []string{".ico"}}},
 		}},
-		Commands: []protocol.BuildCommand{{ID: "hello", Required: true}, {ID: "shell"}},
+		Commands: []protocol.BuildCommand{{ID: "hello", Op: 1, Required: true}, {ID: "shell", Op: 2}},
 	}
 }
 

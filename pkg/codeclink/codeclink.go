@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/logoscore/logos-golang-module-core/pkg/coretls"
 	"github.com/logoscore/logos-golang-protocol/protocol"
 )
 
@@ -214,7 +215,8 @@ type Options struct {
 	Instance string
 	// Codec answers the calls; required.
 	Codec Codec
-	// HTTPClient makes the handshake; http.DefaultClient when nil.
+	// HTTPClient makes the handshake; when nil, module-core's
+	// coretls.Client: core's TLS trust from the environment.
 	HTTPClient *http.Client
 	// MaxCalls bounds the calls in progress at once (DefaultMaxCalls when
 	// zero); one more is answered with a failure at once.
@@ -287,7 +289,16 @@ func Run(ctx context.Context, o Options) error {
 func runOnce(ctx context.Context, u string, o Options, log *slog.Logger) error {
 	h := http.Header{}
 	h.Set(protocol.HeaderFactoryInstance, o.Instance)
-	ws, resp, err := websocket.Dial(ctx, u, &websocket.DialOptions{HTTPClient: o.HTTPClient, HTTPHeader: h})
+	hc := o.HTTPClient
+	if hc == nil {
+		// The process's client for core: its TLS trust from the
+		// environment (module-core's coretls).
+		var err error
+		if hc, err = coretls.Client(); err != nil {
+			return err
+		}
+	}
+	ws, resp, err := websocket.Dial(ctx, u, &websocket.DialOptions{HTTPClient: hc, HTTPHeader: h})
 	if resp != nil && resp.Body != nil {
 		// The handshake's body says nothing the status does not.
 		_ = resp.Body.Close()

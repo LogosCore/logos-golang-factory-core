@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.3.1
+
+- The factory link dials core with module-core's `coretls.Client()` (v0.3.0) when given no `HTTPClient`: core over HTTPS with a self-signed certificate (`LOGOS_CORE_CA_FILE`, `LOGOS_CORE_CERT_SHA256`, `LOGOS_CORE_TLS_INSECURE`).
+
 ## v0.3.0
 
 - **Codecs** (docs: contracts/minion-messages/codecs): `pkg/codeclink` keeps

@@ -29,6 +29,8 @@ The integration test runs a factory against a scripted core on a real RabbitMQ. 
 
 ## Package `pkg/codeclink`
 
+Given no `HTTPClient`, the link dials with module-core's `coretls.Client()`: core's certificate trusted as `LOGOS_CORE_CA_FILE`, `LOGOS_CORE_CERT_SHA256` or `LOGOS_CORE_TLS_INSECURE` say.
+
 The factory link (docs: contracts/minion-messages/codecs, The factory link), for a factory whose schema names a suite or an envelope of its own (`protocol.BuildSchema.Translates`). `Run(ctx, Options)` keeps the WebSocket to `GET /api/factory/link` open with `Logos-Factory-Instance` (coder/websocket, as channel-core's `linkclient`): reopens with backoff (1 s doubling to 30 s, reset after a minute up; a 403 until registration logs at debug), pings every 30 s, answers each call in its own goroutine within its deadline, `MaxCalls` (64) at once and a failure past it. `Answer(ctx, codec, call)` is one call's answer, validated against its call (`ValidateFor`): a codec's error becomes a failure (`NotOpened`, `NotMessage`, `Refused`, else `other`; the message cut to 512 bytes, UTF-8), and so does a result the call does not take. `factory.Run` runs it with `Config.Codec` and `Config.CoreURL` (both required when the schema translates, refused when it does not; codec names must be the module's), stopping it with ctx. `pkg/factorytest/core.go`: `Core`, core's end of a real link for tests (`NewCore`, `Refuse`, `WaitLinked`, `Drop`, `Call`, `Links`).
 
 ## Conventions

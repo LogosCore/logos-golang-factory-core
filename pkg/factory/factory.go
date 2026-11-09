@@ -22,8 +22,10 @@ import (
 	"log/slog"
 	"maps"
 	"net/http"
+	"strings"
 	"time"
 
+	"github.com/logoscore/logos-golang-factory-core/pkg/codeclink"
 	"github.com/logoscore/logos-golang-module-core/pkg/lifecycle"
 	"github.com/logoscore/logos-golang-module-core/pkg/mgmt"
 	"github.com/logoscore/logos-golang-module-core/pkg/module"
@@ -126,6 +128,14 @@ type Config struct {
 	HTTPClient *http.Client
 	// ShutdownGrace defaults to DefaultShutdownGrace.
 	ShutdownGrace time.Duration
+	// Codec translates the layers of the minions' codec that are the
+	// factory's own: required when Build names a suite or an envelope of
+	// the factory's own (protocol.BuildSchema.Translates), refused
+	// otherwise. Run keeps the factory link open for it (pkg/codeclink).
+	Codec codeclink.Codec
+	// CoreURL is core's base URL, http(s)://host[:port] (the channels'
+	// sync call's), which the factory link opens on: required with Codec.
+	CoreURL string
 }
 
 // Run keeps the factory registered and serving builds until ctx is
@@ -147,6 +157,24 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 	if cfg.Builder == nil {
 		return errors.New("factory: Builder is required")
+	}
+	// A codec of the factory's own: its names are the module's, and Run
+	// keeps the factory link it is called over (docs: Codecs).
+	switch translates := cfg.Build.Translates(); {
+	case translates && cfg.Codec == nil:
+		return fmt.Errorf("factory: the build schema names a codec of the factory's own (%s): Codec is required",
+			strings.Join(cfg.Build.FactoryCodecs(), ", "))
+	case !translates && cfg.Codec != nil:
+		return errors.New("factory: Codec is for a build schema that names a suite or an envelope of the factory's own")
+	case translates && cfg.CoreURL == "":
+		return errors.New("factory: CoreURL is required with Codec: the factory link opens on it")
+	case translates:
+		if err := protocol.ValidateCodecOwner(*cfg.Build, cfg.Identity.ModuleName); err != nil {
+			return fmt.Errorf("factory: %w", err)
+		}
+		if _, err := codeclink.LinkURL(cfg.CoreURL); err != nil {
+			return fmt.Errorf("factory: %w", err)
+		}
 	}
 	switch {
 	case cfg.MaxConcurrentBuilds == 0:
@@ -195,12 +223,28 @@ func Run(ctx context.Context, cfg Config) error {
 	defer stopSession()
 	done := make(chan error, 1)
 	go func() { done <- module.Run(sessionCtx, mc) }()
+	linkDone := make(chan struct{})
+	linkCtx, stopLink := context.WithCancel(ctx)
+	defer stopLink()
+	go func() {
+		defer close(linkDone)
+		if cfg.Codec == nil {
+			return
+		}
+		// Refused (403) until the instance is registered: the link backs off
+		// and opens once it is.
+		_ = codeclink.Run(linkCtx, codeclink.Options{BaseURL: cfg.CoreURL, Instance: cfg.Identity.Instance, Codec: cfg.Codec,
+			Logger: logger()})
+	}()
 	select {
 	case err := <-done: // an invalid module config; nothing was served
+		stopLink()
+		<-linkDone
 		m.close(0)
 		return err
 	case <-ctx.Done():
 	}
+	<-linkDone
 	m.close(cfg.ShutdownGrace)
 	stopSession()
 	return <-done

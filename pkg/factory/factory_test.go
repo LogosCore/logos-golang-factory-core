@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/logoscore/logos-golang-factory-core/pkg/codeclink"
 	"github.com/logoscore/logos-golang-module-core/pkg/lifecycle"
 	"github.com/logoscore/logos-golang-module-core/pkg/mgmt"
 	"github.com/logoscore/logos-golang-module-core/pkg/module"
@@ -52,6 +53,14 @@ func TestRunRefusesInvalidConfig(t *testing.T) {
 			c.Management = own
 		}},
 		{"AMQPURL is required", func(c *Config) { c.AMQPURL = "" }}, // module.Run's own check
+		// A codec of the factory's own (docs: Codecs).
+		{"names a codec of the factory's own (bob.xor): Codec is required", func(c *Config) { translating(c, nil) }},
+		{"Codec is for a build schema that names", func(c *Config) { c.Codec, c.CoreURL = nopCodec{}, "http://core:8080" }},
+		{"CoreURL is required with Codec", func(c *Config) { translating(c, nopCodec{}); c.CoreURL = "" }},
+		{"core base URL", func(c *Config) { translating(c, nopCodec{}); c.CoreURL = "core:8080" }},
+		{`codec "bob.xor" is not module "acme"'s`, func(c *Config) { translating(c, nopCodec{}); c.Identity.ModuleName = "acme" }},
+		// Past the checks, the link starts and stops with Run.
+		{"AMQPURL is required", func(c *Config) { translating(c, nopCodec{}); c.AMQPURL = "" }},
 	} {
 		cfg := valid()
 		c.mutate(&cfg)
@@ -59,4 +68,22 @@ func TestRunRefusesInvalidConfig(t *testing.T) {
 			t.Errorf("want an error containing %q, got %v", c.want, err)
 		}
 	}
+}
+
+// translating makes c's schema name a suite of the factory's own, with
+// codec translating it.
+func translating(c *Config, codec codeclink.Codec) {
+	c.Build.Crypto, c.Build.Codec = "bob.xor", &protocol.BuildCodec{Growth: 150}
+	c.Codec, c.CoreURL = codec, "http://127.0.0.1:1"
+}
+
+// nopCodec answers nothing.
+type nopCodec struct{}
+
+func (nopCodec) Inbound(context.Context, codeclink.Inbound) (codeclink.Opened, error) {
+	return codeclink.Opened{}, nil
+}
+func (nopCodec) Outbound(context.Context, codeclink.Outbound) ([]byte, error) { return nil, nil }
+func (nopCodec) Keys(context.Context, codeclink.KeysFor) (codeclink.Keys, error) {
+	return codeclink.Keys{}, nil
 }

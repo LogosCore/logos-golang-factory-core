@@ -109,6 +109,45 @@ err := factory.Run(ctx, factory.Config{
 })
 ```
 
+## Codecs
+
+A factory whose minions cannot speak core's codec (the CBOR envelope, the
+`aes-256-cbc-hmac-sha256` suite) names a suite or an envelope of its own in
+its build schema, `<module_name>.<name>`, with a `codec` declaration, and
+translates that layer for core (docs: contracts/minion-messages/codecs). Run
+does the rest when it gets a `Codec` and core's base URL: it keeps the
+factory link (`pkg/codeclink`) open, reopening it as it drops (refused until
+the instance is registered), and answers core's calls with the codec's three
+methods, each within the call's deadline:
+
+| Method | Core asks |
+|---|---|
+| `Inbound` | read a minion's message: open it with one of the candidate keys (the factory's suite), decode it (its envelope); say which key opened it |
+| `Outbound` | write core's message: encode it (its envelope), seal it with the id's key (its suite) |
+| `Keys` | make the suite's keys for a build, or for a stage (wrapped for the stage item's key; `Refused` for a suite without staging) |
+
+`NotOpened`, `NotMessage` and `Refused` are the failures core tells apart;
+any other error goes as `other`, and so does a result the call does not take
+(a key index past the candidates, a stage's keys without the wrapped ones).
+
+```go
+schema.Crypto = "acme.xchacha"
+schema.Codec = &protocol.BuildCodec{Growth: 120, Overhead: 64, Timeout: "2s"}
+
+err := factory.Run(ctx, factory.Config{
+	Config: module.Config{AMQPURL: amqpURL, Identity: id},
+	Build: &schema, Builder: builder,
+	Codec: acmeCodec{}, CoreURL: "http://logos-core:8080",
+})
+```
+
+Run refuses a schema that names a codec of its own without a `Codec` (and the
+other way round), one without `CoreURL`, and names of another module. For
+tests, `codeclink.Answer` runs one call in process, and
+`factorytest.NewCore` is core's end of a real link: it takes the instance's
+link (403 while `Refuse`d) and sends it calls (`Call`), checked as core
+checks them.
+
 ## Development
 
 ```bash

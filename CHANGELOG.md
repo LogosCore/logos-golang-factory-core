@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.3.0
+
+- **Codecs** (docs: contracts/minion-messages/codecs): `pkg/codeclink` keeps
+  the factory link for a factory that translates its minions' suite or
+  envelope; a factory gives `factory.Config` a `Codec` (`Inbound`,
+  `Outbound`, `Keys`) and `CoreURL`, and Run keeps the link. `codeclink.Answer`
+  and `factorytest.Core` for tests. Requires `logos-golang-protocol` v0.48.1.
+
 ## v0.2.0
 
 - **The minion id is now the build id**: build operations carry `build_id` (`BuildRequest.BuildID` and the rest), and the SDK names builds by it. Requires `logos-golang-protocol` v0.7.0 and `logos-golang-module-core` v0.2.1.

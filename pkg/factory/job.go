@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -34,6 +35,7 @@ type Job struct {
 
 	steps    []protocol.BuildStep
 	http     *http.Client
+	core     string // core's base URL: a link that is a path is on it
 	logs     *tailBuffer
 	progress chan protocol.BuildProgress
 	// unknownStep is told once of each step id reported outside the plan.
@@ -45,12 +47,13 @@ type Job struct {
 	artifact *protocol.BuildArtifact
 }
 
-func newJob(req protocol.BuildRequest, target protocol.BuildTarget, steps []protocol.BuildStep, hc *http.Client) *Job {
+func newJob(req protocol.BuildRequest, target protocol.BuildTarget, steps []protocol.BuildStep, hc *http.Client, core string) *Job {
 	return &Job{
 		Request:     req,
 		Target:      target,
 		steps:       steps,
 		http:        hc,
+		core:        core,
 		logs:        &tailBuffer{max: protocol.MaxBuildLogBytes},
 		progress:    make(chan protocol.BuildProgress, 1),
 		unknownStep: func(string) {},
@@ -155,9 +158,25 @@ func (j *Job) Download(ctx context.Context, f protocol.BuildFile, path string) e
 	return os.Rename(tmp.Name(), path)
 }
 
-// fetch downloads f from its presigned URL into w and checks it.
+// link is where a link of the request goes: a path is on core's base URL
+// (core's own transfer endpoints), an absolute URL as it is.
+func (j *Job) link(l string) (string, error) {
+	if !strings.HasPrefix(l, "/") {
+		return l, nil
+	}
+	if j.core == "" {
+		return "", errors.New("a link on core's address, and no core base URL (Config.CoreURL)")
+	}
+	return strings.TrimRight(j.core, "/") + l, nil
+}
+
+// fetch downloads f from core (its link) into w and checks it.
 func (j *Job) fetch(ctx context.Context, f protocol.BuildFile, w io.Writer) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, f.URL, nil)
+	u, err := j.link(f.URL)
+	if err != nil {
+		return fmt.Errorf("download %s: %w", f.Name, err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return fmt.Errorf("download %s: %w", f.Name, err)
 	}
@@ -223,7 +242,11 @@ func (j *Job) UploadArtifact(ctx context.Context, filename, mediaType string, bo
 		}
 		upload = spool
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, j.Request.Artifact.UploadURL, upload)
+	u, err := j.link(j.Request.Artifact.UploadURL)
+	if err != nil {
+		return fmt.Errorf("upload artifact: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, u, upload)
 	if err != nil {
 		return fmt.Errorf("upload artifact: %w", err)
 	}

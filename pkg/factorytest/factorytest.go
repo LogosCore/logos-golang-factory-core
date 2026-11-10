@@ -1,7 +1,8 @@
 // Package factorytest runs a factory's builder in process, for the factory's
-// tests. A Store stands in for the object store behind a build's presigned
-// URLs; Run runs one build through the same checks, plan, Job and result as
-// factory.Run, and returns what core would receive and the artifact uploaded.
+// tests. A Store stands in for core's transfer endpoints, at absolute URLs a
+// build's links can name; Run runs one build through the same checks, plan,
+// Job and result as factory.Run, and returns what core would receive and the
+// artifact uploaded.
 package factorytest
 
 import (
@@ -19,8 +20,8 @@ import (
 	"github.com/logoscore/logos-golang-protocol/protocol"
 )
 
-// Store serves build files and takes artifacts over HTTP, like the object
-// store behind presigned URLs.
+// Store serves build files and takes artifacts over HTTP, as core's transfer
+// endpoints do.
 type Store struct {
 	srv     *httptest.Server
 	mu      sync.Mutex

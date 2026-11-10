@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/logoscore/logos-golang-factory-core/pkg/codeclink"
+	"github.com/logoscore/logos-golang-module-core/pkg/coretls"
 	"github.com/logoscore/logos-golang-module-core/pkg/lifecycle"
 	"github.com/logoscore/logos-golang-module-core/pkg/mgmt"
 	"github.com/logoscore/logos-golang-module-core/pkg/module"
@@ -122,9 +123,10 @@ type Config struct {
 	// beyond it is refused with busy. Defaults to DefaultMaxConcurrentBuilds.
 	// It is where the max_concurrent_builds property starts.
 	MaxConcurrentBuilds int
-	// HTTPClient downloads files and uploads artifacts. It needs no timeout
-	// of its own: every transfer is bounded by its build's deadline.
-	// Defaults to a plain http.Client.
+	// HTTPClient downloads build files from core and uploads artifacts to
+	// it. It needs no timeout of its own: every transfer is bounded by its
+	// build's deadline. Defaults to module-core's coretls.Client: core's TLS
+	// trust from the environment, as the module's other calls to core.
 	HTTPClient *http.Client
 	// ShutdownGrace defaults to DefaultShutdownGrace.
 	ShutdownGrace time.Duration
@@ -134,7 +136,9 @@ type Config struct {
 	// otherwise. Run keeps the factory link open for it (pkg/codeclink).
 	Codec codeclink.Codec
 	// CoreURL is core's base URL, http(s)://host[:port] (the channels'
-	// sync call's), which the factory link opens on: required with Codec.
+	// sync call's: LOGOS_CORE_BASE_URL). Required: a factory.build's links
+	// are paths on it (core streams the build's files and takes its
+	// artifact), and the factory link opens on it.
 	CoreURL string
 }
 
@@ -158,6 +162,12 @@ func Run(ctx context.Context, cfg Config) error {
 	if cfg.Builder == nil {
 		return errors.New("factory: Builder is required")
 	}
+	if cfg.CoreURL == "" {
+		return errors.New("factory: CoreURL is required: builds download their files from core and upload their artifacts to it")
+	}
+	if _, err := codeclink.LinkURL(cfg.CoreURL); err != nil {
+		return fmt.Errorf("factory: %w", err)
+	}
 	// A codec of the factory's own: its names are the module's, and Run
 	// keeps the factory link it is called over (docs: Codecs).
 	switch translates := cfg.Build.Translates(); {
@@ -166,13 +176,8 @@ func Run(ctx context.Context, cfg Config) error {
 			strings.Join(cfg.Build.FactoryCodecs(), ", "))
 	case !translates && cfg.Codec != nil:
 		return errors.New("factory: Codec is for a build schema that names a suite or an envelope of the factory's own")
-	case translates && cfg.CoreURL == "":
-		return errors.New("factory: CoreURL is required with Codec: the factory link opens on it")
 	case translates:
 		if err := protocol.ValidateCodecOwner(*cfg.Build, cfg.Identity.ModuleName); err != nil {
-			return fmt.Errorf("factory: %w", err)
-		}
-		if _, err := codeclink.LinkURL(cfg.CoreURL); err != nil {
 			return fmt.Errorf("factory: %w", err)
 		}
 	}
@@ -186,7 +191,11 @@ func Run(ctx context.Context, cfg Config) error {
 		cfg.ShutdownGrace = DefaultShutdownGrace
 	}
 	if cfg.HTTPClient == nil {
-		cfg.HTTPClient = &http.Client{}
+		hc, err := coretls.Client()
+		if err != nil {
+			return fmt.Errorf("factory: core TLS settings: %w", err)
+		}
+		cfg.HTTPClient = hc
 	}
 	if cfg.Core == nil {
 		cfg.Core = lifecycle.NewCoreClient()
@@ -203,7 +212,7 @@ func Run(ctx context.Context, cfg Config) error {
 		return slog.Default()
 	}
 
-	m := newManager(*cfg.Build, cfg.Builder, cfg.Core, cfg.HTTPClient, cfg.MaxConcurrentBuilds, logger)
+	m := newManager(*cfg.Build, cfg.Builder, cfg.Core, cfg.HTTPClient, cfg.CoreURL, cfg.MaxConcurrentBuilds, logger)
 	mc := cfg.Config
 	mc.Handlers = maps.Clone(cfg.Handlers)
 	if mc.Handlers == nil {

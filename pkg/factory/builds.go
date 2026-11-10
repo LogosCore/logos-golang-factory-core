@@ -75,6 +75,7 @@ type manager struct {
 	builder Builder
 	core    coreCaller
 	http    *http.Client
+	coreURL string // core's base URL, which the builds' links are paths on
 	logger  func() *slog.Logger
 	now     func() time.Time
 	// retryMin and retryMax pace result deliveries (minRetry, maxRetry).
@@ -98,9 +99,9 @@ type manager struct {
 	stats    buildStats
 }
 
-func newManager(schema protocol.BuildSchema, b Builder, core coreCaller, hc *http.Client, max int, logger func() *slog.Logger) *manager {
+func newManager(schema protocol.BuildSchema, b Builder, core coreCaller, hc *http.Client, coreURL string, max int, logger func() *slog.Logger) *manager {
 	m := &manager{
-		schema: schema, builder: b, core: core, http: hc, max: max, logger: logger,
+		schema: schema, builder: b, core: core, http: hc, coreURL: coreURL, max: max, logger: logger,
 		now:      time.Now,
 		retryMin: minRetry, retryMax: maxRetry,
 		builds: map[string]*build{},
@@ -232,7 +233,7 @@ func (m *manager) run(ctx context.Context, b *build, req protocol.BuildRequest) 
 	defer b.cancel()
 	started := m.now()
 	target, _ := m.schema.Target(req.Target)
-	job := newJob(req, target, b.steps, m.http)
+	job := newJob(req, target, b.steps, m.http, m.coreURL)
 	job.unknownStep = func(id string) {
 		m.logger().Warn("factory: a step that is not in the build's plan was not reported", "build_id", b.id, "step", id)
 	}

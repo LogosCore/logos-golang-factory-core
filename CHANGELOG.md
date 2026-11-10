@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- **Build files and artifacts go through core.** A `factory.build`'s links
+  are paths on core's address (protocol `IsLink`: core streams the files
+  and takes the artifact, its storage never reached by a factory), so a
+  factory works wherever it reaches core. `Config.CoreURL` is required
+  (`LOGOS_CORE_BASE_URL`); transfers use module-core's `coretls.Client()`
+  when given no `HTTPClient`, as the factory link does.
+
 ## v0.3.1
 
 - The factory link dials core with module-core's `coretls.Client()` (v0.3.0) when given no `HTTPClient`: core over HTTPS with a self-signed certificate (`LOGOS_CORE_CA_FILE`, `LOGOS_CORE_CERT_SHA256`, `LOGOS_CORE_TLS_INSECURE`).

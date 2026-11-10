@@ -39,8 +39,16 @@ err := factory.Run(ctx, factory.Config{
 	},
 	Build:   &schema,
 	Builder: builder{},
+	CoreURL: os.Getenv("LOGOS_CORE_BASE_URL"), // https://core.example.com
 })
 ```
+
+`CoreURL` is required: a build's files and its artifact go through core
+(`GET` and `PUT` on the links a `factory.build` carries, paths on core's
+address), wherever the factory runs. Without an `HTTPClient`, they go with
+module-core's `coretls.Client()`: core over HTTPS with a certificate no
+system trusts (`LOGOS_CORE_CA_FILE`, `LOGOS_CORE_CERT_SHA256`,
+`LOGOS_CORE_TLS_INSECURE`), as the module's other calls to core.
 
 A builder that does not plan (a `BuilderFunc`, say) has one step,
 `factory.DefaultStep` (`build`).
@@ -142,7 +150,7 @@ err := factory.Run(ctx, factory.Config{
 ```
 
 Run refuses a schema that names a codec of its own without a `Codec` (and the
-other way round), one without `CoreURL`, and names of another module. For
+other way round), and names of another module. For
 tests, `codeclink.Answer` runs one call in process, and
 `factorytest.NewCore` is core's end of a real link: it takes the instance's
 link (403 while `Refuse`d) and sends it calls (`Call`), checked as core

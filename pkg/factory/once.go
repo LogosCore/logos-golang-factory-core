@@ -25,8 +25,9 @@ type Once struct {
 // BuildOnce runs one build in process, without core or a broker, the way Run
 // serves a factory.build: req is checked against schema, planned, the builder
 // runs with a Job, and what core would receive is returned. Files and the
-// artifact move through req's URLs as in a real build (factorytest.Store
-// serves them). It is for testing builders.
+// artifact move through req's links as in a real build (factorytest.Store
+// serves them, at absolute URLs: there is no core whose paths they could
+// be). It is for testing builders.
 func BuildOnce(ctx context.Context, schema protocol.BuildSchema, b Builder, req protocol.BuildRequest, hc *http.Client) (Once, error) {
 	if err := protocol.ValidateBuildSchema(schema); err != nil {
 		return Once{}, fmt.Errorf("invalid build schema: %w", err)
@@ -35,7 +36,7 @@ func BuildOnce(ctx context.Context, schema protocol.BuildSchema, b Builder, req 
 		hc = &http.Client{}
 	}
 	core := &resultTrap{results: make(chan protocol.BuildResult, 1)}
-	m := newManager(schema, b, core, hc, 1, func() *slog.Logger { return slog.New(slog.DiscardHandler) })
+	m := newManager(schema, b, core, hc, "", 1, func() *slog.Logger { return slog.New(slog.DiscardHandler) })
 	defer m.close(0)
 	raw, err := json.Marshal(req)
 	if err != nil {

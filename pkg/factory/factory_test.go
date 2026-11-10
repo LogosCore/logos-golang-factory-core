@@ -29,6 +29,7 @@ func TestRunRefusesInvalidConfig(t *testing.T) {
 			},
 			Build:   &schema,
 			Builder: uploadAndReturn(Result{}),
+			CoreURL: "http://127.0.0.1:1",
 		}
 	}
 	noop := func(context.Context, json.RawMessage) (any, error) { return nil, nil }
@@ -40,6 +41,8 @@ func TestRunRefusesInvalidConfig(t *testing.T) {
 		{"Build schema is required", func(c *Config) { c.Build = nil }},
 		{"invalid build schema", func(c *Config) { c.Build.Targets = nil }},
 		{"Builder is required", func(c *Config) { c.Builder = nil }},
+		{"CoreURL is required", func(c *Config) { c.CoreURL = "" }},
+		{"core base URL", func(c *Config) { c.CoreURL = "core:8080" }},
 		{"MaxConcurrentBuilds", func(c *Config) { c.MaxConcurrentBuilds = -1 }},
 		{`must not take "factory.build"`, func(c *Config) {
 			c.Handlers = map[string]mgmt.HandlerFunc{protocol.TypeFactoryBuild: noop}
@@ -56,8 +59,6 @@ func TestRunRefusesInvalidConfig(t *testing.T) {
 		// A codec of the factory's own (docs: Codecs).
 		{"names a codec of the factory's own (bob.xor): Codec is required", func(c *Config) { translating(c, nil) }},
 		{"Codec is for a build schema that names", func(c *Config) { c.Codec, c.CoreURL = nopCodec{}, "http://core:8080" }},
-		{"CoreURL is required with Codec", func(c *Config) { translating(c, nopCodec{}); c.CoreURL = "" }},
-		{"core base URL", func(c *Config) { translating(c, nopCodec{}); c.CoreURL = "core:8080" }},
 		{`codec "bob.xor" is not module "acme"'s`, func(c *Config) { translating(c, nopCodec{}); c.Identity.ModuleName = "acme" }},
 		// Past the checks, the link starts and stops with Run.
 		{"AMQPURL is required", func(c *Config) { translating(c, nopCodec{}); c.AMQPURL = "" }},

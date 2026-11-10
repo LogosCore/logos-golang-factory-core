@@ -48,7 +48,8 @@ func sha(s string) string {
 	return hex.EncodeToString(h[:])
 }
 
-// store stands in for the object store behind the presigned URLs.
+// store stands in for core's transfer endpoints (or a store at absolute
+// URLs) that a build's links lead to.
 type store struct {
 	*httptest.Server
 	mu        sync.Mutex
@@ -168,7 +169,7 @@ func (c *fakeCore) resultCount() int {
 func newTestManager(t *testing.T, b Builder, core *fakeCore, max int) *manager {
 	t.Helper()
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
-	m := newManager(testSchema(), b, core, http.DefaultClient, max, func() *slog.Logger { return quiet })
+	m := newManager(testSchema(), b, core, http.DefaultClient, "", max, func() *slog.Logger { return quiet })
 	m.retryMin, m.retryMax = 10*time.Millisecond, 20*time.Millisecond
 	t.Cleanup(func() { m.close(time.Second) })
 	return m
@@ -638,7 +639,7 @@ func TestTimedOutBuild(t *testing.T) {
 	// The result says why, in case it does go out.
 	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
 	defer cancel()
-	r := m.result(ctx, newJob(req, testSchema().Targets[0], DefaultSteps(), http.DefaultClient), Result{}, ctx.Err())
+	r := m.result(ctx, newJob(req, testSchema().Targets[0], DefaultSteps(), http.DefaultClient, ""), Result{}, ctx.Err())
 	if r.Error == nil || r.Error.Code != CodeTimeout {
 		t.Fatalf("result %+v", r.Error)
 	}

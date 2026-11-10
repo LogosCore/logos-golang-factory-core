@@ -46,7 +46,8 @@ func TestIntegrationBuildOverAMQP(t *testing.T) {
 				Identity: lifecycle.Identity{ModuleName: "bob-it", Instance: instance, Version: "test"},
 				Logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
 			},
-			Build: &schema,
+			Build:   &schema,
+			CoreURL: st.URL,
 			Builder: BuilderFunc(func(ctx context.Context, job *Job) (Result, error) {
 				job.Step("build", "writing the minion")
 				return uploadAndReturn(Result{})(ctx, job)

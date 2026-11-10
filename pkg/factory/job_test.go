@@ -15,7 +15,7 @@ import (
 
 func testJob(st *store) *Job {
 	steps := []protocol.BuildStep{{ID: "compile", Label: "Compile"}, {ID: "link", Label: "Link"}}
-	return newJob(testRequest(st), testSchema().Targets[0], steps, http.DefaultClient)
+	return newJob(testRequest(st), testSchema().Targets[0], steps, http.DefaultClient, "")
 }
 
 func TestUploadArtifactEdges(t *testing.T) {
@@ -168,5 +168,37 @@ func TestBuildLogTail(t *testing.T) {
 	_, _ = job.Log().Write([]byte("raw"))
 	if s := job.logs.String(); s != "line 1\nline 2\nraw" {
 		t.Fatalf("log = %q", s)
+	}
+}
+
+// A link that is a path is on core's address: the job downloads and uploads
+// there. Without core's address, it fails before any request.
+func TestLinksOnCoresAddress(t *testing.T) {
+	st := newStore(t)
+	ctx := context.Background()
+	req := testRequest(st)
+	f := req.Files["file-1"]
+	f.URL = "/files/app.ico"
+	req.Files["file-1"] = f
+	req.Artifact.UploadURL = "/artifacts/" + req.BuildID
+
+	job := newJob(req, testSchema().Targets[0], DefaultSteps(), http.DefaultClient, st.URL+"/")
+	got, err := job.ReadFile(ctx, f)
+	if err != nil || string(got) != iconBody {
+		t.Fatalf("ReadFile = %q, %v", got, err)
+	}
+	if err := job.UploadArtifact(ctx, "minion.bin", "application/octet-stream", strings.NewReader("mz")); err != nil {
+		t.Fatal(err)
+	}
+	if body, _, _, ok := st.upload("/artifacts/" + req.BuildID); !ok || string(body) != "mz" {
+		t.Fatalf("upload: ok=%v body=%q", ok, body)
+	}
+
+	job = newJob(req, testSchema().Targets[0], DefaultSteps(), http.DefaultClient, "")
+	if _, err := job.ReadFile(ctx, f); err == nil || !strings.Contains(err.Error(), "no core base URL") {
+		t.Fatalf("ReadFile without core's address: %v", err)
+	}
+	if err := job.UploadArtifact(ctx, "minion.bin", "", strings.NewReader("mz")); err == nil || !strings.Contains(err.Error(), "no core base URL") {
+		t.Fatalf("UploadArtifact without core's address: %v", err)
 	}
 }

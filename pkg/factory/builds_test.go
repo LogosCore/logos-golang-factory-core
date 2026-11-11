@@ -30,14 +30,14 @@ func testSchema() protocol.BuildSchema {
 	return protocol.BuildSchema{
 		SchemaVersion: protocol.BuildSchemaV3, Version: 1,
 		Channels: []protocol.BuildChannel{{
-			ModuleName: "http", Versions: []int{2},
-			Kinds: []protocol.BuildKind{{Kind: protocol.KindReverseCall, Fields: []protocol.FieldSpec{{Key: "method", Type: protocol.FieldEnum,
+			ModuleName: "http", Num: 1, Versions: []int{2},
+			Kinds: []protocol.BuildKind{{Kind: protocol.KindReverseCall, Fields: []protocol.FieldSpec{{Key: "method", Num: 1, Type: protocol.FieldEnum,
 				Default: "POST", Options: []protocol.EnumOption{{Value: "GET"}, {Value: "POST"}}}}}},
 		}},
-		Fields: []protocol.FieldSpec{{Key: "greeting", Type: protocol.FieldString, Default: "hello"}},
+		Fields: []protocol.FieldSpec{{Key: "greeting", Num: 1, Type: protocol.FieldString, Default: "hello"}},
 		Targets: []protocol.BuildTarget{{
 			ID: "dummy", Format: "json", Platforms: []string{"any/any"},
-			Fields: []protocol.FieldSpec{{Key: "icon", Type: protocol.FieldFile, Accept: []string{".ico"}}},
+			Fields: []protocol.FieldSpec{{Key: "icon", Num: 2, Type: protocol.FieldFile, Accept: []string{".ico"}}},
 		}},
 		Commands: []protocol.BuildCommand{{ID: "hello", Op: 1, Required: true}, {ID: "shell", Op: 2}},
 	}

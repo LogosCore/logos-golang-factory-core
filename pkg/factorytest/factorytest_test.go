@@ -11,9 +11,9 @@ import (
 
 var schema = protocol.BuildSchema{
 	SchemaVersion: protocol.BuildSchemaV3, Version: 1,
-	Channels: []protocol.BuildChannel{{ModuleName: "http", Versions: []int{2}, Kinds: []protocol.BuildKind{{Kind: protocol.KindReverseCall}}}},
+	Channels: []protocol.BuildChannel{{ModuleName: "http", Num: 1, Versions: []int{2}, Kinds: []protocol.BuildKind{{Kind: protocol.KindReverseCall}}}},
 	Targets: []protocol.BuildTarget{{ID: "copy", Format: "bin", Platforms: []string{"any/any"},
-		Fields: []protocol.FieldSpec{{Key: "input", Type: protocol.FieldFile, Required: true}}}},
+		Fields: []protocol.FieldSpec{{Key: "input", Num: 1, Type: protocol.FieldFile, Required: true}}}},
 }
 
 // copier uploads its input file as the artifact.

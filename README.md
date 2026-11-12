@@ -74,8 +74,9 @@ A builder that does not plan (a `BuilderFunc`, say) has one step,
 
 The `Job` a builder gets carries the request and target, the plan (`Steps`)
 and `Step` to report the step it is on (best effort, never blocks; a step
-outside the plan is dropped and logged once), a build log (`Log`, `Logf`; its
-last 64 KiB go with the result), `File`, `ReadFile` and `Download` (checked by
+outside the plan is dropped and logged once), a build log (`Log`, `Logf`:
+sent to core as it is written, line by line, each line with its step and
+time, `factory.build.log`; its last 64 KiB also go with the result), `File`, `ReadFile` and `Download` (checked by
 size and SHA-256), and `UploadArtifact` (computes the size and SHA-256,
 enforces `max_size`).
 

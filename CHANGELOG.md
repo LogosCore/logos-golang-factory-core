@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.5.0
+
+- **The live build log.** What a builder writes to `Job.Log`/`Logf` goes to
+  core as it is written (`factory.build.log`): line by line, each line with
+  the plan step it was written in (the plan's first before any `Step`) and
+  when, in numbered chunks (500 lines or 64 KiB at most, sent after 250 ms
+  or when full), one at a time, a lost one sent again with its number. Its
+  last lines go before the result. When core falls behind, the oldest
+  queued lines go past 4 MiB, counted in the next chunk's `dropped`; a
+  `not_found` stops the build, any other refusal (a core without the live
+  log) stops the live log for that build. The result still carries the
+  log's last 64 KiB. `BuildOnce` returns the lines (`Once.Log`). Requires
+  `logos-golang-protocol` v0.54.0.
+
 ## v0.4.1
 
 - Requires `logos-golang-protocol` v0.50.0 and `logos-golang-module-core`

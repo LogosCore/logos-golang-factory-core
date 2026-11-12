@@ -128,6 +128,8 @@ type fakeCore struct {
 	calls    map[string]int
 	progress []protocol.BuildProgress
 	results  []protocol.BuildResult
+	chunks   []protocol.BuildLogChunk
+	order    []string // the types of the calls taken, in order
 	fail     func(typ string, n int) error
 }
 
@@ -142,13 +144,24 @@ func (c *fakeCore) Call(_ context.Context, typ string, payload, _ any) error {
 			return err
 		}
 	}
+	c.order = append(c.order, typ)
 	switch p := payload.(type) {
 	case protocol.BuildProgress:
 		c.progress = append(c.progress, p)
 	case *protocol.BuildResult:
 		c.results = append(c.results, *p)
+	case protocol.BuildLogChunk:
+		c.chunks = append(c.chunks, p)
 	}
 	return nil
+}
+
+// logged returns the log chunks core took and the types of the calls it
+// took, in order.
+func (c *fakeCore) logged() ([]protocol.BuildLogChunk, []string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return slices.Clone(c.chunks), slices.Clone(c.order)
 }
 
 func (c *fakeCore) snapshot() (results []protocol.BuildResult, progress []protocol.BuildProgress, calls map[string]int) {
@@ -171,6 +184,7 @@ func newTestManager(t *testing.T, b Builder, core *fakeCore, max int) *manager {
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
 	m := newManager(testSchema(), b, core, http.DefaultClient, "", max, func() *slog.Logger { return quiet })
 	m.retryMin, m.retryMax = 10*time.Millisecond, 20*time.Millisecond
+	m.logBatch = 5 * time.Millisecond
 	t.Cleanup(func() { m.close(time.Second) })
 	return m
 }

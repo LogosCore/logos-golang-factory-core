@@ -78,8 +78,11 @@ type manager struct {
 	coreURL string // core's base URL, which the builds' links are paths on
 	logger  func() *slog.Logger
 	now     func() time.Time
-	// retryMin and retryMax pace result deliveries (minRetry, maxRetry).
+	// retryMin and retryMax pace result and log deliveries (minRetry,
+	// maxRetry).
 	retryMin, retryMax time.Duration
+	// logBatch and logFlush pace the live log (log.go).
+	logBatch, logFlush time.Duration
 
 	// ctx is the parent of every build; close cancels it first.
 	ctx  context.Context
@@ -104,6 +107,7 @@ func newManager(schema protocol.BuildSchema, b Builder, core coreCaller, hc *htt
 		schema: schema, builder: b, core: core, http: hc, coreURL: coreURL, max: max, logger: logger,
 		now:      time.Now,
 		retryMin: minRetry, retryMax: maxRetry,
+		logBatch: logBatch, logFlush: logFlush,
 		builds: map[string]*build{},
 	}
 	m.ctx, m.stop = context.WithCancel(context.Background())
@@ -237,14 +241,31 @@ func (m *manager) run(ctx context.Context, b *build, req protocol.BuildRequest) 
 	job.unknownStep = func(id string) {
 		m.logger().Warn("factory: a step that is not in the build's plan was not reported", "build_id", b.id, "step", id)
 	}
-	m.wg.Add(1)
+	m.wg.Add(2)
 	go func() {
 		defer m.wg.Done()
 		m.sendProgress(b, job.progress)
 	}()
+	lctx, lstop := context.WithCancel(m.dctx)
+	logged := make(chan struct{})
+	go func() {
+		defer m.wg.Done()
+		defer close(logged)
+		m.sendLog(lctx, b, job.logs)
+	}()
 
 	res, err := m.callBuilder(ctx, job)
 	job.close()
+	// The log's last lines reach core before the result, so core has the
+	// whole of it when the build ends; a core that is not there holds the
+	// result up for logFlush at most.
+	select {
+	case <-logged:
+	case <-time.After(m.logFlush):
+		m.logger().Warn("factory: the build log's last lines did not reach core in time", "build_id", b.id)
+	}
+	lstop()
+	<-logged
 	result := m.result(ctx, job, res, err)
 
 	m.mu.Lock()

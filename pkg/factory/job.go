@@ -36,7 +36,7 @@ type Job struct {
 	steps    []protocol.BuildStep
 	http     *http.Client
 	core     string // core's base URL: a link that is a path is on it
-	logs     *tailBuffer
+	logs     *buildLog
 	progress chan protocol.BuildProgress
 	// unknownStep is told once of each step id reported outside the plan.
 	unknownStep func(id string)
@@ -54,7 +54,7 @@ func newJob(req protocol.BuildRequest, target protocol.BuildTarget, steps []prot
 		steps:       steps,
 		http:        hc,
 		core:        core,
-		logs:        &tailBuffer{max: protocol.MaxBuildLogBytes},
+		logs:        newBuildLog(steps[0].ID),
 		progress:    make(chan protocol.BuildProgress, 1),
 		unknownStep: func(string) {},
 	}
@@ -68,10 +68,13 @@ func (j *Job) Steps() []protocol.BuildStep { return slices.Clone(j.steps) }
 // step again to change its message. Core takes the steps before it as done.
 // It never blocks the build: progress is best effort, and a newer report
 // replaces one not sent yet. A step that is not in the plan is not reported
-// (and logged once).
+// (and logged once). The build log's lines from then on are the step's.
 func (j *Job) Step(id, message string) {
 	p := protocol.BuildProgress{BuildID: j.Request.BuildID, Step: id, Message: clip(message)}
 	planned := slices.ContainsFunc(j.steps, func(s protocol.BuildStep) bool { return s.ID == id })
+	if planned {
+		j.logs.setStep(id)
+	}
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	if j.closed {
@@ -99,8 +102,11 @@ func (j *Job) Step(id, message string) {
 	}
 }
 
-// Log is the build log. What is written to it is sent with the result; core
-// keeps its last 64 KiB and shows it with the build, mainly when it fails.
+// Log is the build log. Core gets it as it is written, line by line, each
+// line with the step it was written in (lines before the first Step are the
+// plan's first step's), and shows it by step while the build runs. Its last
+// 64 KiB also go with the result, for a core that does not take the live
+// log.
 func (j *Job) Log() io.Writer { return j.logs }
 
 // Logf appends a line to the build log.
@@ -278,8 +284,9 @@ func (j *Job) uploaded() *protocol.BuildArtifact {
 	return j.artifact
 }
 
-// close ends the job: later progress is dropped.
+// close ends the job: later progress is dropped, and the log is closed.
 func (j *Job) close() {
+	j.logs.close()
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	if !j.closed {

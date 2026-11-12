@@ -13,12 +13,14 @@ import (
 )
 
 // Once is what core would see of a build BuildOnce ran: the plan sent with
-// the acceptance, the progress reports that reached it, and the result.
-// Progress is best effort: a newer report replaces one not sent yet, so a
-// step may be missing from Progress.
+// the acceptance, the progress reports that reached it, the live log's lines,
+// each with its step, and the result. Progress is best effort: a newer report
+// replaces one not sent yet, so a step may be missing from Progress. The log
+// is whole: its last lines go before the result.
 type Once struct {
 	Steps    []protocol.BuildStep
 	Progress []protocol.BuildProgress
+	Log      []protocol.BuildLogLine
 	Result   protocol.BuildResult
 }
 
@@ -37,6 +39,7 @@ func BuildOnce(ctx context.Context, schema protocol.BuildSchema, b Builder, req 
 	}
 	core := &resultTrap{results: make(chan protocol.BuildResult, 1)}
 	m := newManager(schema, b, core, hc, "", 1, func() *slog.Logger { return slog.New(slog.DiscardHandler) })
+	m.logBatch = 0 // no core to spare: send lines as they come
 	defer m.close(0)
 	raw, err := json.Marshal(req)
 	if err != nil {
@@ -59,17 +62,20 @@ func BuildOnce(ctx context.Context, schema protocol.BuildSchema, b Builder, req 
 		case <-done:
 		case <-ctx.Done():
 		}
-		return Once{Steps: rep.(protocol.BuildReply).Steps, Progress: core.reports(), Result: r}, nil
+		progress, lines := core.reports()
+		return Once{Steps: rep.(protocol.BuildReply).Steps, Progress: progress, Log: lines, Result: r}, nil
 	case <-ctx.Done():
 		return Once{}, ctx.Err()
 	}
 }
 
-// resultTrap stands in for core: it keeps the progress and the result.
+// resultTrap stands in for core: it keeps the progress, the log and the
+// result.
 type resultTrap struct {
 	results  chan protocol.BuildResult
 	mu       sync.Mutex
 	progress []protocol.BuildProgress
+	lines    []protocol.BuildLogLine
 }
 
 func (c *resultTrap) Call(_ context.Context, typ string, payload, _ any) error {
@@ -87,12 +93,21 @@ func (c *resultTrap) Call(_ context.Context, typ string, payload, _ any) error {
 			c.progress = append(c.progress, p)
 			c.mu.Unlock()
 		}
+	case protocol.TypeFactoryBuildLog:
+		if l, ok := payload.(protocol.BuildLogChunk); ok {
+			if err := l.Validate(); err != nil {
+				return fmt.Errorf("an invalid log chunk: %w", err)
+			}
+			c.mu.Lock()
+			c.lines = append(c.lines, l.Lines...)
+			c.mu.Unlock()
+		}
 	}
 	return nil
 }
 
-func (c *resultTrap) reports() []protocol.BuildProgress {
+func (c *resultTrap) reports() ([]protocol.BuildProgress, []protocol.BuildLogLine) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return slices.Clone(c.progress)
+	return slices.Clone(c.progress), slices.Clone(c.lines)
 }

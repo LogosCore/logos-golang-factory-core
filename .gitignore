@@ -1,0 +1,4 @@
+# Dev only: a workspace on local checkouts (docs: Contributing, Changing
+# the Protocol)
+go.work
+go.work.sum

@@ -1,13 +1,22 @@
 # Changelog
 
-## Unreleased
+## v0.4.1
+
+- Requires `logos-golang-protocol` v0.50.0 and `logos-golang-module-core`
+  v0.3.2. A build request may carry a minion config
+  (`Job.Request.MinionConfig`), checked with the rest of the request: the
+  builder decides what of it goes into its minion. Build schemas number
+  every channel, field and connection parameter, the tests' too.
+
+## v0.4.0
 
 - **Build files and artifacts go through core.** A `factory.build`'s links
   are paths on core's address (protocol `IsLink`: core streams the files
   and takes the artifact, its storage never reached by a factory), so a
   factory works wherever it reaches core. `Config.CoreURL` is required
   (`LOGOS_CORE_BASE_URL`); transfers use module-core's `coretls.Client()`
-  when given no `HTTPClient`, as the factory link does.
+  when given no `HTTPClient`, as the factory link does. Requires
+  `logos-golang-protocol` v0.49.0 and `logos-golang-module-core` v0.3.1.
 
 ## v0.3.1
 

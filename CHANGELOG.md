@@ -1,9 +1,15 @@
 # Changelog
 
-## v0.5.1
+## v0.5.2
 
 - Requires `logos-golang-protocol` v0.55.0 (the desktop fronts) and
-  `logos-golang-module-core` v0.3.3. No change of its own.
+  `logos-golang-module-core` v0.3.4. No change of its own.
+
+## v0.5.1
+
+- Requires `logos-golang-module-core` v0.3.3. No change of its own: it was
+  meant to take `logos-golang-protocol` v0.55.0 and kept v0.54.0 (v0.5.2
+  takes it).
 
 ## v0.5.0
 

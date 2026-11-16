@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.5.1
+
+- Requires `logos-golang-protocol` v0.55.0 (the desktop fronts) and
+  `logos-golang-module-core` v0.3.3. No change of its own.
+
 ## v0.5.0
 
 - **The live build log.** What a builder writes to `Job.Log`/`Logf` goes to

@@ -4,7 +4,7 @@ go 1.25.7
 
 require (
 	github.com/coder/websocket v1.8.15
-	github.com/logoscore/logos-golang-module-core v0.3.4
+	github.com/logoscore/logos-golang-module-core v0.3.5
 	github.com/logoscore/logos-golang-protocol v0.55.0
 	github.com/rabbitmq/amqp091-go v1.10.0
 )

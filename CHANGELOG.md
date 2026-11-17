@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.5.3
+
+- Requires `logos-golang-module-core` v0.3.5: a factory registers again
+  after core or its RabbitMQ was away, and its build reports no longer wait
+  behind the lifecycle's calls. No change of its own.
+
 ## v0.5.2
 
 - Requires `logos-golang-protocol` v0.55.0 (the desktop fronts) and

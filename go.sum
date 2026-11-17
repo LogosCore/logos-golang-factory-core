@@ -2,8 +2,8 @@ github.com/coder/websocket v1.8.15 h1:6B2JPeOGlpff2Uz6vOEH1Vzpi0iUz20A+lPVhPHtNU
 github.com/coder/websocket v1.8.15/go.mod h1:NX3SzP+inril6yawo5CQXx8+fk145lPDC6pumgx0mVg=
 github.com/fxamacker/cbor/v2 v2.9.6 h1:NHZPxuUjJXQjX9itA785y/5NKSlI4HQ+S7noZsmI7hs=
 github.com/fxamacker/cbor/v2 v2.9.6/go.mod h1:4EaZp6ClVunETjQ4GHmGNzysDK91Lr+r6Yz6tJqzVCw=
-github.com/logoscore/logos-golang-module-core v0.3.4 h1:DCuQTQobAnSEromyZvZlzUrcgLpK8gnsRvMQVw0aUxk=
-github.com/logoscore/logos-golang-module-core v0.3.4/go.mod h1:3BlnB3mkKMSAE85M6iClmu+e80HjAgz2Vrn2K6ok0oU=
+github.com/logoscore/logos-golang-module-core v0.3.5 h1:4TTEYWD3ckCT8fsrM7p4KEzp1+Ma786F1e4OWz6hIXA=
+github.com/logoscore/logos-golang-module-core v0.3.5/go.mod h1:3BlnB3mkKMSAE85M6iClmu+e80HjAgz2Vrn2K6ok0oU=
 github.com/logoscore/logos-golang-protocol v0.55.0 h1:SdGEn9uSCLGI67jUwWHBCAbav4CYQMKtrWxeCbOcc5s=
 github.com/logoscore/logos-golang-protocol v0.55.0/go.mod h1:u5+5QwLHML635VWwWPK7IwpNbM5Md98cE5wxTf03bgc=
 github.com/rabbitmq/amqp091-go v1.10.0 h1:STpn5XsHlHGcecLmMFCtg7mqq0RnD+zFr4uzukfVhBw=

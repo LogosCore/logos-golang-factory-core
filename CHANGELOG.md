@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.5.4
+
+- Requires `logos-golang-protocol` v0.57.0 (the screenshot result, a
+  check-in interval of 0) and `logos-golang-module-core` v0.3.6. No change
+  of its own.
+
 ## v0.5.3
 
 - Requires `logos-golang-module-core` v0.3.5: a factory registers again

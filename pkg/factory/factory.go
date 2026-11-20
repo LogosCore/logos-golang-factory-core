@@ -22,6 +22,7 @@ import (
 	"log/slog"
 	"maps"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -138,8 +139,38 @@ type Config struct {
 	// CoreURL is core's base URL, http(s)://host[:port] (the channels'
 	// sync call's: LOGOS_CORE_BASE_URL). Required: a factory.build's links
 	// are paths on it (core streams the build's files and takes its
-	// artifact), and the factory link opens on it.
+	// artifact), and the factory link opens on it, as do a composite's call's
+	// links.
 	CoreURL string
+	// Composers are the code of the schema's composite commands, by command
+	// id (compose.go): one for each composite command of Build, and for no
+	// other id. Run serves factory.compose for them.
+	Composers map[string]Composer
+	// MaxConcurrentDecisions is how many factory.compose calls are answered
+	// at once; one past it is answered busy, and core calls again. Defaults
+	// to DefaultMaxConcurrentDecisions.
+	MaxConcurrentDecisions int
+}
+
+// checkComposers checks that code is the code of the schema's composite
+// commands: one Composer for each, and none for another id.
+func checkComposers(schema protocol.BuildSchema, code map[string]Composer) error {
+	composite := map[string]bool{}
+	for _, c := range schema.Commands {
+		if !c.Composite {
+			continue
+		}
+		composite[c.ID] = true
+		if code[c.ID] == nil {
+			return fmt.Errorf("the build schema's composite command %q needs its code: Composers[%q] is required", c.ID, c.ID)
+		}
+	}
+	for _, id := range slices.Sorted(maps.Keys(code)) {
+		if !composite[id] {
+			return fmt.Errorf("the build schema has no composite command %q: Composers names it", id)
+		}
+	}
+	return nil
 }
 
 // Run keeps the factory registered and serving builds until ctx is
@@ -181,11 +212,20 @@ func Run(ctx context.Context, cfg Config) error {
 			return fmt.Errorf("factory: %w", err)
 		}
 	}
+	if err := checkComposers(*cfg.Build, cfg.Composers); err != nil {
+		return fmt.Errorf("factory: %w", err)
+	}
 	switch {
 	case cfg.MaxConcurrentBuilds == 0:
 		cfg.MaxConcurrentBuilds = DefaultMaxConcurrentBuilds
 	case cfg.MaxConcurrentBuilds < 0:
 		return errors.New("factory: MaxConcurrentBuilds must not be negative")
+	}
+	switch {
+	case cfg.MaxConcurrentDecisions == 0:
+		cfg.MaxConcurrentDecisions = DefaultMaxConcurrentDecisions
+	case cfg.MaxConcurrentDecisions < 0:
+		return errors.New("factory: MaxConcurrentDecisions must not be negative")
 	}
 	if cfg.ShutdownGrace <= 0 {
 		cfg.ShutdownGrace = DefaultShutdownGrace
@@ -200,7 +240,7 @@ func Run(ctx context.Context, cfg Config) error {
 	if cfg.Core == nil {
 		cfg.Core = lifecycle.NewCoreClient()
 	}
-	for _, typ := range []string{protocol.TypeFactoryBuild, protocol.TypeFactoryBuildCancel} {
+	for _, typ := range []string{protocol.TypeFactoryBuild, protocol.TypeFactoryBuildCancel, protocol.TypeFactoryCompose} {
 		if _, taken := cfg.Handlers[typ]; taken {
 			return fmt.Errorf("factory: Handlers must not take %q", typ)
 		}
@@ -220,6 +260,10 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 	mc.Handlers[protocol.TypeFactoryBuild] = m.handleBuild
 	mc.Handlers[protocol.TypeFactoryBuildCancel] = m.handleCancel
+	if len(cfg.Composers) > 0 {
+		comp := newComposer(cfg.Composers, transfers{http: cfg.HTTPClient, core: cfg.CoreURL}, cfg.MaxConcurrentDecisions, ctx, logger)
+		mc.Handlers[protocol.TypeFactoryCompose] = comp.handleCompose
+	}
 	mc.Options = append([]lifecycle.Option{lifecycle.WithRegisterField(protocol.RegisterFieldBuild, *cfg.Build)}, cfg.Options...)
 	if err := manage(&mc, m); err != nil {
 		m.close(0)

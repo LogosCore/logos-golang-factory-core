@@ -157,6 +157,41 @@ tests, `codeclink.Answer` runs one call in process, and
 link (403 while `Refuse`d) and sends it calls (`Call`), checked as core
 checks them.
 
+## Composite commands
+
+A composite command's task runs the session's other commands as subtasks,
+before and after the command's own op, as the factory's code decides
+(docs: contracts/task-outsourcing). Run gets each composite command's code,
+a `Composer`, by command id, and serves `factory.compose` for them:
+`MaxConcurrentDecisions` calls at once (4 by default, `busy` past them),
+each within the call's deadline, its decision checked as core checks it.
+
+```go
+err := factory.Run(ctx, factory.Config{
+	Config: module.Config{AMQPURL: amqpURL, Identity: id},
+	Build: &schema, Builder: builder, CoreURL: "http://logos-core:8080",
+	Composers: map[string]factory.Composer{"archive": archive{}},
+})
+```
+
+A `Composer` answers one call at a time and keeps nothing between calls:
+what a task needs next time goes in its ctx (`Decision.Ctx`, read back with
+`ComposeCall.ReadCtx`), so any instance may answer.
+
+| A decision | |
+|---|---|
+| `RunSubtasks`, `RunOwnOp` | queue subtasks; send the command's own op |
+| `Cancel`, `CancelOwnOp` | stop subtasks by their key; the own op |
+| `.After(d)` | be called again after `d`, unless something ends first |
+| `.Ctx(v)`, `.Status(line)` | keep `v` for the next calls; the line shown on the task |
+| `Finish(ok, text)`, `.Out`, `.Data`, `.ResultOf` | end the task; a command with no op of its own gives its result |
+
+`ComposeCall` reads an end's data and output when they came by link (`Data`,
+`Out`), fetches the files ends list (`ReadFile`, `Download`), and puts a file
+for the task (`PutFile`) that a later subtask may send. For tests,
+`factorytest.Compose` answers one call as Run would, its links on a
+`factorytest.Store`.
+
 ## Development
 
 ```bash

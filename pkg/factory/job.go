@@ -1,16 +1,11 @@
 package factory
 
 import (
-	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -33,9 +28,8 @@ type Job struct {
 	// Target is the declared target being built.
 	Target protocol.BuildTarget
 
+	transfers
 	steps    []protocol.BuildStep
-	http     *http.Client
-	core     string // core's base URL: a link that is a path is on it
 	logs     *buildLog
 	progress chan protocol.BuildProgress
 	// unknownStep is told once of each step id reported outside the plan.
@@ -51,9 +45,8 @@ func newJob(req protocol.BuildRequest, target protocol.BuildTarget, steps []prot
 	return &Job{
 		Request:     req,
 		Target:      target,
+		transfers:   transfers{http: hc, core: core},
 		steps:       steps,
-		http:        hc,
-		core:        core,
 		logs:        newBuildLog(steps[0].ID),
 		progress:    make(chan protocol.BuildProgress, 1),
 		unknownStep: func(string) {},
@@ -138,75 +131,13 @@ func (j *Job) File(key string) (protocol.BuildFile, bool) {
 // ReadFile downloads f and checks its size and SHA-256. It is for small files
 // such as icons; Download saves large ones to disk.
 func (j *Job) ReadFile(ctx context.Context, f protocol.BuildFile) ([]byte, error) {
-	var buf bytes.Buffer
-	buf.Grow(int(min(f.Size, 1<<20)))
-	if err := j.fetch(ctx, f, &buf); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
+	return j.readFile(ctx, f)
 }
 
 // Download saves f to path, checking its size and SHA-256. Nothing is left at
 // path when it fails.
 func (j *Job) Download(ctx context.Context, f protocol.BuildFile, path string) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".download-*")
-	if err != nil {
-		return fmt.Errorf("download %s: %w", f.Name, err)
-	}
-	defer func() { _ = os.Remove(tmp.Name()) }() // a no-op after the rename
-	err = j.fetch(ctx, f, tmp)
-	if cerr := tmp.Close(); err == nil {
-		err = cerr
-	}
-	if err != nil {
-		return err
-	}
-	return os.Rename(tmp.Name(), path)
-}
-
-// link is where a link of the request goes: a path is on core's base URL
-// (core's own transfer endpoints), an absolute URL as it is.
-func (j *Job) link(l string) (string, error) {
-	if !strings.HasPrefix(l, "/") {
-		return l, nil
-	}
-	if j.core == "" {
-		return "", errors.New("a link on core's address, and no core base URL (Config.CoreURL)")
-	}
-	return strings.TrimRight(j.core, "/") + l, nil
-}
-
-// fetch downloads f from core (its link) into w and checks it.
-func (j *Job) fetch(ctx context.Context, f protocol.BuildFile, w io.Writer) error {
-	u, err := j.link(f.URL)
-	if err != nil {
-		return fmt.Errorf("download %s: %w", f.Name, err)
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-	if err != nil {
-		return fmt.Errorf("download %s: %w", f.Name, err)
-	}
-	resp, err := j.http.Do(req)
-	if err != nil {
-		return fmt.Errorf("download %s: %w", f.Name, err)
-	}
-	// Read to the size or failed already: closing it says nothing more.
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("download %s: %s", f.Name, resp.Status)
-	}
-	h := sha256.New()
-	n, err := io.Copy(io.MultiWriter(w, h), io.LimitReader(resp.Body, f.Size+1))
-	if err != nil {
-		return fmt.Errorf("download %s: %w", f.Name, err)
-	}
-	if n != f.Size {
-		return fmt.Errorf("download %s: got %d bytes, want %d", f.Name, n, f.Size)
-	}
-	if got := hex.EncodeToString(h.Sum(nil)); got != f.SHA256 {
-		return fmt.Errorf("download %s: SHA-256 is %s, want %s", f.Name, got, f.SHA256)
-	}
-	return nil
+	return j.download(ctx, f, path)
 }
 
 // UploadArtifact uploads the build's artifact and records it for the result.
@@ -215,60 +146,33 @@ func (j *Job) fetch(ctx context.Context, f protocol.BuildFile, w io.Writer) erro
 // max_size, and computes the size and SHA-256 it reports. A second call
 // replaces the first.
 func (j *Job) UploadArtifact(ctx context.Context, filename, mediaType string, body io.Reader) error {
-	spool, err := os.CreateTemp("", "logos-artifact-*")
-	if err != nil {
-		return fmt.Errorf("spool artifact: %w", err)
-	}
-	// A scratch copy, read back for the upload and then thrown away: closing
-	// and removing it can fail only in ways the build no longer cares about.
-	defer func() {
-		_ = spool.Close()
-		_ = os.Remove(spool.Name())
-	}()
-
 	limit := j.Request.Artifact.MaxSize
-	h := sha256.New()
-	n, err := io.Copy(io.MultiWriter(spool, h), io.LimitReader(body, limit+1))
-	if err != nil {
+	spooled, n, sum, err := spool(body, limit)
+	switch {
+	case errors.Is(err, errTooLarge):
+		return Fail("artifact_too_large", fmt.Sprintf("the artifact is larger than %d bytes", limit))
+	case err != nil:
 		return fmt.Errorf("spool artifact: %w", err)
 	}
-	if n > limit {
-		return Fail("artifact_too_large", fmt.Sprintf("the artifact is larger than %d bytes", limit))
-	}
-	art := protocol.BuildArtifact{Filename: filename, Size: n, SHA256: hex.EncodeToString(h.Sum(nil)), MediaType: mediaType}
+	defer unspool(spooled)
+	art := protocol.BuildArtifact{Filename: filename, Size: n, SHA256: sum, MediaType: mediaType}
 	check := protocol.BuildResult{BuildID: j.Request.BuildID, Status: protocol.BuildSucceeded, Artifact: &art}
 	if err := check.Validate(); err != nil {
 		return fmt.Errorf("upload artifact: %w", err)
 	}
 
-	var upload io.Reader = http.NoBody // a zero length must not read as unknown
-	if n > 0 {
-		if _, err := spool.Seek(0, io.SeekStart); err != nil {
-			return fmt.Errorf("spool artifact: %w", err)
-		}
-		upload = spool
-	}
-	u, err := j.link(j.Request.Artifact.UploadURL)
-	if err != nil {
-		return fmt.Errorf("upload artifact: %w", err)
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, u, upload)
-	if err != nil {
-		return fmt.Errorf("upload artifact: %w", err)
-	}
-	req.ContentLength = n
+	header := http.Header{}
 	if mediaType != "" {
-		req.Header.Set("Content-Type", mediaType)
+		header.Set("Content-Type", mediaType)
 	}
-	resp, err := j.http.Do(req)
+	resp, err := j.put(ctx, j.Request.Artifact.UploadURL, spooled, n, header)
 	if err != nil {
 		return fmt.Errorf("upload artifact: %w", err)
 	}
 	// The status says how the upload went; closing the body says nothing.
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode/100 != 2 {
-		detail, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return fmt.Errorf("upload artifact: %s %s", resp.Status, strings.TrimSpace(string(detail)))
+		return fmt.Errorf("upload artifact: %w", refusal(resp))
 	}
 
 	j.mu.Lock()

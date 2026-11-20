@@ -62,6 +62,20 @@ func TestRunRefusesInvalidConfig(t *testing.T) {
 		{`codec "bob.xor" is not module "acme"'s`, func(c *Config) { translating(c, nopCodec{}); c.Identity.ModuleName = "acme" }},
 		// Past the checks, the link starts and stops with Run.
 		{"AMQPURL is required", func(c *Config) { translating(c, nopCodec{}); c.AMQPURL = "" }},
+		// Composite commands (docs: Task Outsourcing): each needs its code.
+		{`composite command "relay" needs its code: Composers["relay"] is required`, func(c *Config) { compositing(c, nil) }},
+		{`the build schema has no composite command "shell": Composers names it`, func(c *Config) {
+			compositing(c, map[string]Composer{"relay": decides(Decision{}), "shell": decides(Decision{})})
+		}},
+		{"MaxConcurrentDecisions must not be negative", func(c *Config) {
+			compositing(c, map[string]Composer{"relay": decides(Decision{})})
+			c.MaxConcurrentDecisions = -1
+		}},
+		{`must not take "factory.compose"`, func(c *Config) {
+			c.Handlers = map[string]mgmt.HandlerFunc{protocol.TypeFactoryCompose: noop}
+		}},
+		// Past the checks, factory.compose is served.
+		{"AMQPURL is required", func(c *Config) { compositing(c, map[string]Composer{"relay": decides(Decision{})}); c.AMQPURL = "" }},
 	} {
 		cfg := valid()
 		c.mutate(&cfg)
@@ -76,6 +90,13 @@ func TestRunRefusesInvalidConfig(t *testing.T) {
 func translating(c *Config, codec codeclink.Codec) {
 	c.Build.Crypto, c.Build.Codec = "bob.xor", &protocol.BuildCodec{Growth: 150}
 	c.Codec, c.CoreURL = codec, "http://127.0.0.1:1"
+}
+
+// compositing gives c's schema a composite command, relay, with code as the
+// factory's Composers.
+func compositing(c *Config, code map[string]Composer) {
+	c.Build.Commands = append(c.Build.Commands, protocol.BuildCommand{ID: "relay", Op: 3, Composite: true, Uses: []string{"shell"}})
+	c.Composers = code
 }
 
 // nopCodec answers nothing.

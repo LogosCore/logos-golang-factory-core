@@ -18,7 +18,8 @@ import (
 // TestIntegrationBuildOverAMQP runs a factory against a scripted core on a
 // real RabbitMQ: registration with the build schema and the builds section of
 // its management, factory.build on the rpc_queue, progress and the result on
-// logos.core.rpc, management requests, and the deregister.
+// logos.core.rpc, management requests, a composite's factory.compose, and the
+// deregister.
 //
 // Opt-in: INTEGRATION_AMQP_URL names a broker and a vhost no real core
 // consumes, since the scripted core takes logos.core.rpc. With the dev stack:
@@ -35,6 +36,7 @@ func TestIntegrationBuildOverAMQP(t *testing.T) {
 	st := newStore(t)
 	instance := "bob-it-" + protocol.NewID()
 	schema := testSchema()
+	schema.Commands = append(schema.Commands, protocol.BuildCommand{ID: "relay", Op: 3, Composite: true, Uses: []string{"shell"}})
 
 	ctx, stop := context.WithCancel(context.Background())
 	defer stop()
@@ -52,6 +54,7 @@ func TestIntegrationBuildOverAMQP(t *testing.T) {
 				job.Step("build", "writing the minion")
 				return uploadAndReturn(Result{})(ctx, job)
 			}),
+			Composers: map[string]Composer{"relay": decides(RunSubtasks(Subtask{Command: "shell", Args: map[string]any{"command": "id"}}))},
 		})
 	}()
 
@@ -106,6 +109,13 @@ func TestIntegrationBuildOverAMQP(t *testing.T) {
 	}
 	if rep := core.call(t, reg.RPCQueue, protocol.TypeFactoryBuild, testRequest(st)); rep.Error == nil || rep.Error.Code != protocol.CodeBusy {
 		t.Fatalf("factory.build while draining: %+v", rep)
+	}
+	// A composite's calls share the queue too, and draining stops builds,
+	// not decisions.
+	var decision protocol.Decision
+	if rep := core.call(t, reg.RPCQueue, protocol.TypeFactoryCompose, composeCall(st.URL)); rep.Status != protocol.StatusOK ||
+		json.Unmarshal(rep.Payload, &decision) != nil || len(decision.Run) != 1 || decision.Run[0].Command != "shell" {
+		t.Fatalf("factory.compose reply %+v (error %+v)", rep, rep.Error)
 	}
 
 	stop()

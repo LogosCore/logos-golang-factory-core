@@ -1,5 +1,34 @@
 # Changelog
 
+## v0.6.0
+
+- **Composite commands** (docs: contracts/task-outsourcing). A factory gives
+  the code of each composite command of its build schema in
+  `Config.Composers`, a `Composer` by command id (Run refuses a composite
+  command without one, and one for another id), and Run serves
+  `factory.compose` for them:
+  - each call is checked (`protocol.ComposeRequest.Validate`), and its
+    command's `Composer` runs with a context that ends a second before the
+    call's deadline;
+  - `MaxConcurrentDecisions` calls at once (4 by default): past them, and
+    while the factory stops, a call is answered `busy`;
+  - its `Decision` is checked as core checks it (`ValidateFor`): never an
+    invalid one (`invalid_decision` instead); an error is `compose_failed`,
+    a panic `panic`;
+  - a finish's own output or data past 16 KiB is put as a file for the task.
+- `Decision` is made with `RunSubtasks`, `RunOwnOp`, `Cancel`,
+  `CancelOwnOp` and `Finish`, and added to with `After`, `Ctx`, `ClearCtx`,
+  `Status`, `Out`, `Data` and `ResultOf`. A subtask's label goes on one line,
+  and texts are cut to the protocol's limits.
+- `ComposeCall` is the call, with `ReadCtx`; an end's `Data` and `Out`,
+  fetched when they came by link; `ReadFile` and `Download` for the files
+  ends list; and `PutFile`, a file for the task at the call's upload URL.
+- Tests: `ComposeOnce` answers one call in process; `factorytest.Compose`
+  fills in what core adds, and `factorytest.Store` takes the files put for a
+  task (`UploadURL`, `Put`) and serves an end's links (`Link`).
+- Requires `logos-golang-protocol` v0.58.0. Core does not send
+  `factory.compose` yet.
+
 ## v0.5.4
 
 - Requires `logos-golang-protocol` v0.57.0 (the screenshot result, a

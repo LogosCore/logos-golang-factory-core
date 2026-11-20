@@ -69,6 +69,32 @@ func BuildOnce(ctx context.Context, schema protocol.BuildSchema, b Builder, req 
 	}
 }
 
+// ComposeOnce answers one call in process, without core or a broker, the way
+// Run serves a factory.compose: req is checked, code runs within the call's
+// deadline, and its decision is finished (a large finish's output or data put
+// as a file at req's UploadURL) and checked as core checks it. It returns the
+// decision core would receive, or the error reply core would get: a
+// *coreerrors.Error with its code (CodeComposeFailed, CodeInvalidDecision,
+// CodePanic, protocol.CodeValidationFailed). The call's links are absolute
+// URLs (factorytest.Store's): there is no core whose paths they could be. It
+// is for testing composers.
+func ComposeOnce(ctx context.Context, code Composer, req protocol.ComposeRequest, hc *http.Client) (protocol.Decision, error) {
+	if hc == nil {
+		hc = &http.Client{}
+	}
+	c := newComposer(map[string]Composer{req.Command: code}, transfers{http: hc}, 1, context.Background(),
+		func() *slog.Logger { return slog.New(slog.DiscardHandler) })
+	raw, err := json.Marshal(req)
+	if err != nil {
+		return protocol.Decision{}, err
+	}
+	rep, err := c.handleCompose(ctx, raw)
+	if err != nil {
+		return protocol.Decision{}, err
+	}
+	return rep.(protocol.Decision), nil
+}
+
 // resultTrap stands in for core: it keeps the progress, the log and the
 // result.
 type resultTrap struct {
